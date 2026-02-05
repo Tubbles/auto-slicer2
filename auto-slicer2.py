@@ -23,6 +23,8 @@ class Config:
         self.telegram_token = config["TELEGRAM"]["bot_token"]
         allowed = config["TELEGRAM"].get("allowed_users", "").strip()
         self.allowed_users: set[int] = set(int(x) for x in allowed.split(",") if x.strip())
+        notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
+        self.notify_chat_id: int | None = int(notify) if notify else None
 
 
 def is_allowed(config: Config, user_id: int) -> bool:
@@ -184,6 +186,13 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     os._exit(0)
 
 
+async def post_init(app) -> None:
+    """Send startup notification."""
+    config: Config = app.bot_data["config"]
+    if config.notify_chat_id:
+        await app.bot.send_message(config.notify_chat_id, "Auto-Slicer Bot is online!")
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle STL file uploads."""
     document = update.message.document
@@ -227,7 +236,7 @@ def main():
 
     config.archive_dir.mkdir(parents=True, exist_ok=True)
 
-    app = Application.builder().token(config.telegram_token).build()
+    app = Application.builder().token(config.telegram_token).post_init(post_init).build()
     app.bot_data["config"] = config
 
     app.add_handler(CommandHandler("start", start_command))
