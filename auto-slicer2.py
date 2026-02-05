@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import os
+import sys
 import time
 import subprocess
 import shutil
@@ -90,7 +92,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Commands:\n"
         "/settings key=value ... - Set slicer overrides\n"
         "/mysettings - Show your current settings\n"
-        "/clear - Reset to defaults"
+        "/clear - Reset to defaults\n"
+        "/reload - Pull updates and restart"
     )
 
 
@@ -149,6 +152,27 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("Settings cleared. Using defaults.")
 
 
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /reload command to pull updates and restart."""
+    config: Config = context.bot_data["config"]
+    if not is_allowed(config, update.effective_user.id):
+        return
+
+    await update.message.reply_text("Pulling latest changes...")
+
+    script_dir = Path(__file__).parent
+    result = subprocess.run(
+        ["git", "pull"], cwd=script_dir, capture_output=True, text=True
+    )
+
+    if result.returncode != 0:
+        await update.message.reply_text(f"Git pull failed:\n{result.stderr[:500]}")
+        return
+
+    await update.message.reply_text(f"{result.stdout.strip()}\n\nRestarting...")
+    os._exit(0)
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle STL file uploads."""
     document = update.message.document
@@ -199,6 +223,7 @@ def main():
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("mysettings", mysettings_command))
     app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CommandHandler("reload", reload_command))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     print("Bot started...")

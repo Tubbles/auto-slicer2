@@ -52,4 +52,21 @@ python auto-slicer2.py -c /path/to/config.ini
 
 - `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition
 - `[DEFAULT_SETTINGS]`: CuraEngine setting key-value pairs
-- `[TELEGRAM]`: bot_token (get from @BotFather)
+- `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = everyone)
+
+## Systemd User Service
+
+```bash
+# Install
+mkdir -p ~/.config/systemd/user
+cp auto-slicer2.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+
+# Enable and start
+systemctl --user enable auto-slicer2
+systemctl --user start auto-slicer2
+
+# Check status / logs
+systemctl --user status auto-slicer2
+journalctl --user -u auto-slicer2 -f
+```

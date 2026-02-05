@@ -1,0 +1,14 @@
+[Unit]
+Description=Auto-Slicer Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/auto-slicer2
+ExecStart=/usr/bin/python %h/dev/auto-slicer2/auto-slicer2.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
