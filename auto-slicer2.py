@@ -43,17 +43,17 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
 
     gcode_path = stl_path.with_suffix(".gcode")
 
+    # CuraEngine needs both definitions and extruders directories
+    extruders_dir = config.def_dir.parent / "extruders"
+
     cmd = [
         str(config.cura_bin),
         "slice",
-        "-d",
-        str(config.def_dir),
-        "-j",
-        config.printer_def,
-        "-l",
-        str(stl_path),
-        "-o",
-        str(gcode_path),
+        "-d", str(config.def_dir),
+        "-d", str(extruders_dir),
+        "-j", config.printer_def,
+        "-l", str(stl_path),
+        "-o", str(gcode_path),
     ]
 
     for key, val in active_settings.items():
