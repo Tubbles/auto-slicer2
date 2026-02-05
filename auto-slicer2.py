@@ -59,8 +59,18 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
     for key, val in active_settings.items():
         cmd.extend(["-s", f"{key}={val}"])
 
+    print(f"[Slicing] {stl_path.name}")
+    print(f"[Command] {' '.join(cmd)}")
+    print(f"[Settings] {active_settings}")
+
     try:
         result = subprocess.run(cmd, cwd=str(config.def_dir), capture_output=True, text=True)
+
+        if result.stdout:
+            print(f"[stdout] {result.stdout}")
+        if result.stderr:
+            print(f"[stderr] {result.stderr}")
+        print(f"[Exit code] {result.returncode}")
 
         if result.returncode == 0:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -71,14 +81,20 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
 
+            print(f"[Success] Archived to {job_folder}")
             return True, "Slicing completed successfully", job_folder
         else:
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(stl_path), error_dir / stl_path.name)
-            return False, f"CuraEngine error: {result.stderr[:500]}", error_dir
+            # Include both stdout and stderr in error message
+            output = result.stdout + result.stderr
+            error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
+            print(f"[Failed] {error_msg}")
+            return False, f"CuraEngine error:\n{error_msg}", error_dir
 
     except Exception as e:
+        print(f"[Exception] {e}")
         return False, f"System error: {e}", None
 
 
