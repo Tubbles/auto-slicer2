@@ -82,21 +82,34 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
         return False, f"System error: {e}", None
 
 
+HELP_TEXT = """Auto-Slicer Bot
+
+Send me an STL file and I'll slice it with CuraEngine.
+
+Commands:
+/help - Show this message
+/settings - Show available settings
+/settings key=value ... - Set slicer overrides
+/mysettings - Show your current settings
+/clear - Reset to defaults
+/reload - Pull updates and restart"""
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     config: Config = context.bot_data["config"]
     if not is_allowed(config, update.effective_user.id):
         await update.message.reply_text("You are not authorized to use this bot.")
         return
-    await update.message.reply_text(
-        "Auto-Slicer Bot\n\n"
-        "Send me an STL file and I'll slice it with CuraEngine.\n\n"
-        "Commands:\n"
-        "/settings key=value ... - Set slicer overrides\n"
-        "/mysettings - Show your current settings\n"
-        "/clear - Reset to defaults\n"
-        "/reload - Pull updates and restart"
-    )
+    await update.message.reply_text(HELP_TEXT)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /help command."""
+    config: Config = context.bot_data["config"]
+    if not is_allowed(config, update.effective_user.id):
+        return
+    await update.message.reply_text(HELP_TEXT)
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -240,6 +253,7 @@ def main():
     app.bot_data["config"] = config
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("mysettings", mysettings_command))
     app.add_handler(CommandHandler("clear", clear_command))
