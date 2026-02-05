@@ -106,8 +106,19 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if not context.args:
         await update.message.reply_text(
-            "Usage: /settings key=value key2=value2\n"
-            "Example: /settings layer_height=0.1 fill_density=20"
+            "Usage: /settings key=value ...\n\n"
+            "Common settings:\n"
+            "  layer_height - Layer height in mm (0.1-0.3)\n"
+            "  infill_sparse_density - Infill % (0-100)\n"
+            "  wall_line_count - Number of walls (2-4)\n"
+            "  top_layers - Top solid layers (3-6)\n"
+            "  bottom_layers - Bottom solid layers (3-6)\n"
+            "  support_enable - Generate supports (true/false)\n"
+            "  adhesion_type - skirt, brim, raft, none\n"
+            "  material_print_temperature - Hotend temp\n"
+            "  material_bed_temperature - Bed temp\n"
+            "  speed_print - Print speed in mm/s\n\n"
+            "Example: /settings layer_height=0.2 infill_sparse_density=20"
         )
         return
 
