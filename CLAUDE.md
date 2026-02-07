@@ -54,6 +54,13 @@ python auto-slicer2.py -c /path/to/config.ini
 - `[DEFAULT_SETTINGS]`: CuraEngine setting key-value pairs
 - `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = everyone)
 
+## Git Workflow
+
+- Create small, focused commits as you go so changes are easy to review and revert.
+- Each commit should address a single concern (one bug fix, one feature, one refactor).
+- Use a succinct imperative commit title (e.g. "Add retry logic for API calls").
+- Include gotchas, caveats, or non-obvious side effects in the commit message body.
+
 ## Systemd User Service
 
 ```bash
