@@ -60,6 +60,7 @@ python auto-slicer2.py -c /path/to/config.ini
 - Each commit should address a single concern (one bug fix, one feature, one refactor).
 - Use a succinct imperative commit title (e.g. "Add retry logic for API calls").
 - Include gotchas, caveats, or non-obvious side effects in the commit message body.
+- Never add "Co-Authored-By" lines or email addresses to commit messages.
 
 ## Systemd User Service
 
