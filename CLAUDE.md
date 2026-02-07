@@ -61,6 +61,7 @@ python auto-slicer2.py -c /path/to/config.ini
 - Use a succinct imperative commit title (e.g. "Add retry logic for API calls").
 - Include gotchas, caveats, or non-obvious side effects in the commit message body.
 - Never add "Co-Authored-By" lines or email addresses to commit messages.
+- Push freely without asking, but never use `git push --force` or any force-push variant.
 
 ## Systemd User Service
 
