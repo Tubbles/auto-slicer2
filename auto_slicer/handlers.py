@@ -194,6 +194,7 @@ async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     lines = [f"Settings matching '{query}' ({min(len(results), 10)} of {len(results)}):\n"]
+    buttons = []
     for defn in results[:10]:
         unit = f" {defn.unit}" if defn.unit else ""
         current = overrides.get(defn.key)
@@ -203,12 +204,18 @@ async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"    {defn.label} [{defn.setting_type}]"
             f" default: {defn.default_value}{unit}{current_str}"
         )
+        cb_data = f"pick:{defn.key}"
+        if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
+            buttons.append([InlineKeyboardButton(
+                f"Set {defn.label}", callback_data=cb_data,
+            )])
 
     text = "\n".join(lines)
     # Telegram message limit is 4096 chars
     if len(text) > 4096:
         text = text[:4090] + "\n..."
-    await update.message.reply_text(text)
+    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+    await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
