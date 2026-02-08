@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
@@ -445,6 +446,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     overrides = user_settings.get(user_id, {})
 
     await update.message.reply_text(f"Received {document.file_name}, slicing...")
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_DOCUMENT,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         stl_path = Path(tmpdir) / document.file_name
