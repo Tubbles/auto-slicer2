@@ -218,6 +218,33 @@ async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
+def _format_mysettings(config: Config, settings: dict) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Format the /mysettings text and remove-buttons keyboard."""
+    if not settings:
+        return "No custom settings. Using defaults.", None
+
+    lines = []
+    buttons = []
+    for key, val in settings.items():
+        defn = config.registry.get(key)
+        if defn:
+            unit = f" {defn.unit}" if defn.unit else ""
+            lines.append(f"  {defn.label}: {val}{unit}")
+            label = defn.label
+        else:
+            lines.append(f"  {key}: {val}")
+            label = key
+        cb_data = f"rm:{key}"
+        if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
+            buttons.append([InlineKeyboardButton(
+                f"x {label}", callback_data=cb_data,
+            )])
+
+    text = "Your settings:\n" + "\n".join(lines)
+    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+    return text, keyboard
+
+
 async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /mysettings command to show current overrides."""
     config: Config = context.bot_data["config"]
@@ -226,18 +253,8 @@ async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     settings = user_settings.get(user_id, {})
 
-    if settings:
-        lines = []
-        for key, val in settings.items():
-            defn = config.registry.get(key)
-            if defn:
-                unit = f" {defn.unit}" if defn.unit else ""
-                lines.append(f"  {defn.label}: {val}{unit}")
-            else:
-                lines.append(f"  {key}: {val}")
-        await update.message.reply_text("Your settings:\n" + "\n".join(lines))
-    else:
-        await update.message.reply_text("No custom settings. Using defaults.")
+    text, keyboard = _format_mysettings(config, settings)
+    await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -607,8 +624,24 @@ async def _cb_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+    key = query.data.removeprefix("rm:")
+
+    settings = user_settings.get(user_id, {})
+    removed = settings.pop(key, None)
+    if not settings:
+        user_settings.pop(user_id, None)
+
+    defn = config.registry.get(key)
+    label = defn.label if defn else key
+    await query.answer(f"Removed {label}.")
+
+    # Re-render the /mysettings message in-place
+    remaining = user_settings.get(user_id, {})
+    text, keyboard = _format_mysettings(config, remaining)
+    await query.edit_message_text(text, reply_markup=keyboard)
 
 
 async def _cb_disambig(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
