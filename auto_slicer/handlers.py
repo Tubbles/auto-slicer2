@@ -146,8 +146,43 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /settings search <query> — placeholder, wired in next commit."""
-    await update.message.reply_text("Search not yet implemented. Use /settings key=value to set settings.")
+    """Handle /settings search <query> — search settings by key, label, or description."""
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+    query = " ".join(context.args[1:]).lower()
+
+    if not query:
+        await update.message.reply_text("Usage: /settings search <query>\nExample: /settings search infill")
+        return
+
+    overrides = user_settings.get(user_id, {})
+    results = []
+    for key, defn in config.registry.all_settings().items():
+        if (query in key.lower()
+                or query in defn.label.lower()
+                or query in defn.description.lower()):
+            results.append(defn)
+
+    if not results:
+        await update.message.reply_text(f"No settings found matching '{query}'.")
+        return
+
+    lines = [f"Settings matching '{query}' ({min(len(results), 10)} of {len(results)}):\n"]
+    for defn in results[:10]:
+        unit = f" {defn.unit}" if defn.unit else ""
+        current = overrides.get(defn.key)
+        current_str = f" (set: {current})" if current else ""
+        lines.append(
+            f"  {defn.key}\n"
+            f"    {defn.label} [{defn.setting_type}]"
+            f" default: {defn.default_value}{unit}{current_str}"
+        )
+
+    text = "\n".join(lines)
+    # Telegram message limit is 4096 chars
+    if len(text) > 4096:
+        text = text[:4090] + "\n..."
+    await update.message.reply_text(text)
 
 
 async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
