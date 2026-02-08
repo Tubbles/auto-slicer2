@@ -9,6 +9,7 @@ from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
 from .settings_match import SettingsMatcher
 from .settings_validate import SettingsValidator
+from .presets import PresetManager
 
 
 # Per-user settings overrides, keyed by Telegram user ID
@@ -215,6 +216,46 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     user_settings.pop(user_id, None)
     await update.message.reply_text("Settings cleared. Using defaults.")
+
+
+async def preset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /preset command to list or apply presets."""
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+    if not is_allowed(config, user_id, update.effective_chat.id):
+        return
+
+    presets = PresetManager()
+
+    if not context.args:
+        lines = ["Available presets:\n"]
+        for name, preset in presets.list_presets().items():
+            lines.append(f"  {name} - {preset['description']}")
+        lines.append("\nUsage: /preset <name>")
+        await update.message.reply_text("\n".join(lines))
+        return
+
+    name = context.args[0].lower()
+    preset = presets.get(name)
+    if not preset:
+        await update.message.reply_text(
+            f"Unknown preset '{name}'. Available: {', '.join(presets.names())}"
+        )
+        return
+
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id].update(preset["settings"])
+
+    lines = [f"Applied preset '{name}':\n"]
+    for key, val in preset["settings"].items():
+        defn = config.registry.get(key)
+        if defn:
+            unit = f" {defn.unit}" if defn.unit else ""
+            lines.append(f"  {defn.label}: {val}{unit}")
+        else:
+            lines.append(f"  {key}: {val}")
+    await update.message.reply_text("\n".join(lines))
 
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

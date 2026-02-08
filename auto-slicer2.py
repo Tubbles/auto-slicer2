@@ -12,6 +12,7 @@ from auto_slicer.handlers import (
     settings_command,
     mysettings_command,
     clear_command,
+    preset_command,
     reload_command,
     adduser_command,
     removeuser_command,
@@ -40,6 +41,7 @@ def main():
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("mysettings", mysettings_command))
     app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CommandHandler("preset", preset_command))
     app.add_handler(CommandHandler("reload", reload_command))
     app.add_handler(CommandHandler("adduser", adduser_command))
     app.add_handler(CommandHandler("removeuser", removeuser_command))

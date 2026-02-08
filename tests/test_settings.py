@@ -8,6 +8,7 @@ from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
 from auto_slicer.settings_match import SettingsMatcher
 from auto_slicer.settings_validate import SettingsValidator, ValidationResult
 from auto_slicer.handlers import _parse_settings_args
+from auto_slicer.presets import PresetManager, BUILTIN_PRESETS
 
 
 @pytest.fixture(scope="module")
@@ -272,3 +273,45 @@ class TestParseSettingsArgs:
     def test_bot_mention(self):
         pairs = _parse_settings_args("/settings@mybot layer_height=0.2")
         assert pairs == [("layer_height", "0.2")]
+
+
+# --- Preset tests ---
+
+class TestPresets:
+    def test_builtin_presets_exist(self):
+        pm = PresetManager()
+        names = pm.names()
+        assert "draft" in names
+        assert "standard" in names
+        assert "fine" in names
+        assert "strong" in names
+
+    def test_get_preset(self):
+        pm = PresetManager()
+        draft = pm.get("draft")
+        assert draft is not None
+        assert "settings" in draft
+        assert "description" in draft
+        assert "layer_height" in draft["settings"]
+
+    def test_get_case_insensitive(self):
+        pm = PresetManager()
+        assert pm.get("Draft") is not None
+
+    def test_get_nonexistent(self):
+        pm = PresetManager()
+        assert pm.get("nonexistent") is None
+
+    def test_preset_settings_are_valid_keys(self, registry):
+        pm = PresetManager()
+        for name, preset in pm.list_presets().items():
+            for key in preset["settings"]:
+                assert registry.get(key) is not None, (
+                    f"Preset '{name}' has unknown key '{key}'"
+                )
+
+    def test_draft_has_higher_layer_height_than_fine(self):
+        pm = PresetManager()
+        draft_lh = float(pm.get("draft")["settings"]["layer_height"])
+        fine_lh = float(pm.get("fine")["settings"]["layer_height"])
+        assert draft_lh > fine_lh
