@@ -194,7 +194,14 @@ async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     settings = user_settings.get(user_id, {})
 
     if settings:
-        lines = [f"  {k}={v}" for k, v in settings.items()]
+        lines = []
+        for key, val in settings.items():
+            defn = config.registry.get(key)
+            if defn:
+                unit = f" {defn.unit}" if defn.unit else ""
+                lines.append(f"  {defn.label}: {val}{unit}")
+            else:
+                lines.append(f"  {key}: {val}")
         await update.message.reply_text("Your settings:\n" + "\n".join(lines))
     else:
         await update.message.reply_text("No custom settings. Using defaults.")
