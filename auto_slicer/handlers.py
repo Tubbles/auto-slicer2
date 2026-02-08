@@ -130,9 +130,28 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             continue
 
         if resolved_key is None:
-            # Ambiguous — show candidates
-            names = [f"  {c.key} ({c.label})" for c in candidates[:5]]
-            response_lines.append(f"Ambiguous: '{query}'. Did you mean:\n" + "\n".join(names))
+            # Ambiguous — send buttons for each candidate (needs its own message)
+            buttons = []
+            for c in candidates[:5]:
+                if raw_value:
+                    cb_data = f"disambig:{c.key}:{raw_value}"
+                else:
+                    cb_data = f"pick:{c.key}"
+                if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
+                    buttons.append([InlineKeyboardButton(
+                        f"{c.label} ({c.key})", callback_data=cb_data,
+                    )])
+            if buttons:
+                keyboard = InlineKeyboardMarkup(buttons)
+                await update.message.reply_text(
+                    f"Ambiguous: '{query}'. Did you mean:",
+                    reply_markup=keyboard,
+                )
+            else:
+                names = [f"  {c.key} ({c.label})" for c in candidates[:5]]
+                response_lines.append(
+                    f"Ambiguous: '{query}'. Did you mean:\n" + "\n".join(names)
+                )
             continue
 
         defn = config.registry.get(resolved_key)
@@ -148,7 +167,8 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if result.warning:
             response_lines.append(f"  Warning: {result.warning}")
 
-    await update.message.reply_text("\n".join(response_lines))
+    if response_lines:
+        await update.message.reply_text("\n".join(response_lines))
 
 
 async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -585,5 +605,36 @@ async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _cb_disambig(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+
+    # Format: disambig:<key>:<value>
+    parts = query.data.split(":", 2)
+    if len(parts) < 3:
+        await query.answer("Invalid callback data.")
+        return
+    key, raw_value = parts[1], parts[2]
+
+    defn = config.registry.get(key)
+    if not defn:
+        await query.answer("Unknown setting.")
+        return
+
+    validator = SettingsValidator()
+    result = validator.validate(defn, raw_value)
+    if not result.ok:
+        await query.answer(result.error[:200])
+        return
+
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id][key] = result.coerced_value
+
+    unit = f" {defn.unit}" if defn.unit else ""
+    text = f"{defn.label}: {result.coerced_value}{unit}"
+    if result.warning:
+        text += f"\nWarning: {result.warning}"
+
+    await query.answer()
+    await query.edit_message_text(text)
