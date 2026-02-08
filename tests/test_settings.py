@@ -315,3 +315,26 @@ class TestPresets:
         draft_lh = float(pm.get("draft")["settings"]["layer_height"])
         fine_lh = float(pm.get("fine")["settings"]["layer_height"])
         assert draft_lh > fine_lh
+
+
+# --- Bounds override tests ---
+
+class TestBoundsOverrides:
+    def test_retraction_amount_hard_max(self, config, validator):
+        """Config sets retraction_amount.maximum_value = 4 for all-metal heat break."""
+        defn = config.registry.get("retraction_amount")
+        assert defn is not None
+        assert defn.maximum_value == 4.0
+
+        # 3mm should pass
+        result = validator.validate(defn, "3")
+        assert result.ok
+
+        # 5mm should be rejected
+        result = validator.validate(defn, "5")
+        assert not result.ok
+        assert "maximum" in result.error.lower()
+
+        # 4mm should be exactly at the limit
+        result = validator.validate(defn, "4")
+        assert result.ok

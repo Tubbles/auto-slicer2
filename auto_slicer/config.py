@@ -30,6 +30,17 @@ class Config:
         notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
         self.notify_chat_id: int | None = int(notify) if notify else None
         self.registry = SettingsRegistry(self.def_dir, self.printer_def)
+        # Apply bounds overrides from config (e.g. retraction_amount.maximum_value = 4)
+        if config.has_section("BOUNDS_OVERRIDES"):
+            for entry, value in config["BOUNDS_OVERRIDES"].items():
+                # Format: setting_key.field = value (e.g. retraction_amount.maximum_value = 4)
+                if "." not in entry:
+                    continue
+                key, field = entry.rsplit(".", 1)
+                defn = self.registry.get(key)
+                if defn and field in ("minimum_value", "maximum_value",
+                                      "minimum_value_warning", "maximum_value_warning"):
+                    setattr(defn, field, float(value))
 
 
 def save_users(config: Config) -> None:
