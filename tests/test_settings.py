@@ -7,7 +7,7 @@ from auto_slicer.config import Config
 from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
 from auto_slicer.settings_match import SettingsMatcher
 from auto_slicer.settings_validate import SettingsValidator, ValidationResult
-from auto_slicer.handlers import _parse_settings_args
+from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
 from auto_slicer.presets import PresetManager, BUILTIN_PRESETS
 
 
@@ -338,3 +338,54 @@ class TestBoundsOverrides:
         # 4mm should be exactly at the limit
         result = validator.validate(defn, "4")
         assert result.ok
+
+
+# --- Inline keyboard tests ---
+
+class TestInlineKeyboard:
+    def test_bool_value_picker(self, registry):
+        defn = registry.get("support_enable")
+        keyboard = _build_value_picker(defn)
+        assert keyboard is not None
+        # Should have one row with True and False buttons
+        assert len(keyboard.inline_keyboard) == 1
+        labels = [btn.text for btn in keyboard.inline_keyboard[0]]
+        assert "True" in labels
+        assert "False" in labels
+
+    def test_enum_value_picker(self, registry):
+        defn = registry.get("adhesion_type")
+        keyboard = _build_value_picker(defn)
+        assert keyboard is not None
+        # Should have buttons for each option (skirt, brim, raft, none)
+        all_buttons = [btn for row in keyboard.inline_keyboard for btn in row]
+        assert len(all_buttons) >= 3  # at least skirt, brim, raft
+
+    def test_float_returns_none(self, registry):
+        defn = registry.get("layer_height")
+        assert _build_value_picker(defn) is None
+
+    def test_int_returns_none(self, registry):
+        defn = registry.get("wall_line_count")
+        assert _build_value_picker(defn) is None
+
+    def test_callback_data_fits_common_settings(self, registry):
+        """Verify val: callback_data for common settings fits in 64 bytes."""
+        common_keys = [
+            "support_enable", "adhesion_type", "layer_height",
+            "infill_sparse_density", "wall_line_count",
+            "material_print_temperature", "speed_print",
+        ]
+        for key in common_keys:
+            cb = f"val:{key}:some_value"
+            assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
+                f"callback_data too long for {key}: {len(cb.encode())} bytes"
+            )
+
+    def test_preset_callback_data_fits(self):
+        pm = PresetManager()
+        for name in pm.names():
+            cb = f"preset:{name}"
+            assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
+                f"preset callback_data too long for {name}: {len(cb.encode())} bytes"
+            )

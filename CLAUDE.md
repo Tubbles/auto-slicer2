@@ -31,9 +31,9 @@ python auto-slicer2.py -c /path/to/config.ini
 - `/start` - Welcome message and usage
 - `/settings key=value ...` - Set overrides (supports names, labels, fuzzy matching)
 - `/settings search <query>` - Find settings by keyword
-- `/mysettings` - Show current user settings (friendly labels + units)
-- `/preset` - List available presets
-- `/preset <name>` - Apply a preset (draft, standard, fine, strong)
+- `/mysettings` - Show current overrides with [x] remove buttons
+- `/preset` - Choose a preset via inline buttons
+- `/preset <name>` - Apply a preset directly (draft, standard, fine, strong)
 - `/clear` - Reset to defaults
 
 ## Architecture
@@ -45,14 +45,14 @@ auto_slicer/
   __init__.py              # empty
   config.py                # Config class, user file I/O, permission checks
   slicer.py                # slice_file()
-  handlers.py              # Telegram command handlers, HELP_TEXT, user_settings
+  handlers.py              # Telegram command/callback handlers, inline keyboards
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
   settings_match.py        # SettingsMatcher (fuzzy/natural language resolution)
   settings_validate.py     # SettingsValidator (type + bounds checking)
   presets.py               # PresetManager + BUILTIN_PRESETS
 auto-slicer2.py            # thin entry point (argparse, app wiring)
 tests/
-  test_settings.py         # tests for registry, matcher, validator, presets
+  test_settings.py         # tests for registry, matcher, validator, presets, inline keyboards
 ```
 
 ### Key Components
@@ -68,6 +68,21 @@ tests/
 **PresetManager** (`presets.py`): Built-in presets (draft/standard/fine/strong) and optional custom presets from presets.json.
 
 **Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID (in-memory, resets on restart).
+
+### Inline Keyboard Callbacks
+
+All inline button callbacks route through `callback_router()`, dispatched by prefix:
+
+```
+preset:<name>            → apply preset (e.g. "preset:draft")
+undo_preset              → restore pre-preset settings
+pick:<key>               → show value picker for setting
+val:<key>:<value>        → apply a value to a setting
+rm:<key>                 → remove single override from /mysettings
+disambig:<key>:<value>   → resolve ambiguous match with known value
+```
+
+Telegram limits callback_data to 64 bytes. Settings with extremely long keys are skipped for buttons and fall back to text prompts.
 
 ### Workflow
 

@@ -28,10 +28,12 @@ Send me an STL file and I'll slice it with CuraEngine.
 Settings:
 /settings key=value - Set overrides (names or labels)
 /settings search <query> - Find settings by keyword
-/mysettings - Show your current overrides
-/preset - List presets (draft, standard, fine, strong)
-/preset <name> - Apply a preset
+/mysettings - Show your current overrides (tap to remove)
+/preset - Choose a preset via buttons
+/preset <name> - Apply a preset directly
 /clear - Reset to defaults
+
+Most responses include interactive buttons for quick actions.
 
 Admin:
 /adduser - Reply to add user (this chat only)
