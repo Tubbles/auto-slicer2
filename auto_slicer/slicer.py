@@ -1,0 +1,68 @@
+import time
+import subprocess
+import shutil
+from pathlib import Path
+
+from .config import Config
+
+
+def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
+    """Slice an STL file and return (success, message, archive_path)."""
+    active_settings = config.defaults.copy()
+    active_settings.update(overrides)
+
+    gcode_path = stl_path.with_suffix(".gcode")
+
+    # CuraEngine needs both definitions and extruders directories
+    extruders_dir = config.def_dir.parent / "extruders"
+
+    cmd = [
+        str(config.cura_bin),
+        "slice",
+        "-d", str(config.def_dir),
+        "-d", str(extruders_dir),
+        "-j", config.printer_def,
+        "-l", str(stl_path),
+        "-o", str(gcode_path),
+    ]
+
+    for key, val in active_settings.items():
+        cmd.extend(["-s", f"{key}={val}"])
+
+    print(f"[Slicing] {stl_path.name}")
+    print(f"[Command] {' '.join(cmd)}")
+    print(f"[Settings] {active_settings}")
+
+    try:
+        result = subprocess.run(cmd, cwd=str(config.def_dir), capture_output=True, text=True)
+
+        if result.stdout:
+            print(f"[stdout] {result.stdout}")
+        if result.stderr:
+            print(f"[stderr] {result.stderr}")
+        print(f"[Exit code] {result.returncode}")
+
+        if result.returncode == 0:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            job_folder = config.archive_dir / f"{stl_path.stem}_{timestamp}"
+            job_folder.mkdir(parents=True, exist_ok=True)
+
+            shutil.move(str(stl_path), job_folder / stl_path.name)
+            if gcode_path.exists():
+                shutil.move(str(gcode_path), job_folder / gcode_path.name)
+
+            print(f"[Success] Archived to {job_folder}")
+            return True, "Slicing completed successfully", job_folder
+        else:
+            error_dir = config.archive_dir / "errors"
+            error_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(stl_path), error_dir / stl_path.name)
+            # Include both stdout and stderr in error message
+            output = result.stdout + result.stderr
+            error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
+            print(f"[Failed] {error_msg}")
+            return False, f"CuraEngine error:\n{error_msg}", error_dir
+
+    except Exception as e:
+        print(f"[Exception] {e}")
+        return False, f"System error: {e}", None
