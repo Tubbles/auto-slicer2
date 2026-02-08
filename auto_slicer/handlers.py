@@ -7,6 +7,8 @@ from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
+from .settings_match import SettingsMatcher
+from .settings_validate import SettingsValidator
 
 
 # Per-user settings overrides, keyed by Telegram user ID
@@ -48,6 +50,30 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(HELP_TEXT)
 
 
+def _parse_settings_args(text: str) -> list[tuple[str, str]]:
+    """Parse 'key=value' pairs from message text after the /settings command.
+
+    Supports quoted keys: "layer height"=0.2 or 'layer height'=0.2
+    and plain keys: layer_height=0.2
+    """
+    import re
+    # Strip the /settings command prefix
+    text = re.sub(r"^/settings(@\S+)?\s*", "", text).strip()
+    if not text:
+        return []
+
+    pairs = []
+    # Match: optional quotes around key, then =, then value (up to next space or end)
+    pattern = re.compile(
+        r"""(?:"([^"]+)"|'([^']+)'|(\S+?))=(\S+)""",
+    )
+    for m in pattern.finditer(text):
+        key = m.group(1) or m.group(2) or m.group(3)
+        val = m.group(4)
+        pairs.append((key, val))
+    return pairs
+
+
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /settings command to set user overrides."""
     config: Config = context.bot_data["config"]
@@ -55,38 +81,73 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not is_allowed(config, user_id, update.effective_chat.id):
         return
 
+    matcher = SettingsMatcher(config.registry)
+    validator = SettingsValidator()
+
     if not context.args:
         await update.message.reply_text(
             "Usage: /settings key=value ...\n\n"
             "Common settings:\n"
-            "  layer_height - Layer height in mm (0.1-0.3)\n"
+            "  layer_height - Layer height in mm\n"
             "  infill_sparse_density - Infill % (0-100)\n"
-            "  wall_line_count - Number of walls (2-4)\n"
-            "  top_layers - Top solid layers (3-6)\n"
-            "  bottom_layers - Bottom solid layers (3-6)\n"
+            "  wall_line_count - Number of walls\n"
             "  support_enable - Generate supports (true/false)\n"
             "  adhesion_type - skirt, brim, raft, none\n"
             "  material_print_temperature - Hotend temp\n"
-            "  material_bed_temperature - Bed temp\n"
             "  speed_print - Print speed in mm/s\n\n"
-            "Example: /settings layer_height=0.2 infill_sparse_density=20"
+            "You can use setting names or labels:\n"
+            '  /settings layer_height=0.2\n'
+            '  /settings "layer height"=0.2\n\n'
+            "Use /settings search <query> to find settings."
         )
+        return
+
+    # Delegate to search handler (commit 6 adds this)
+    if context.args[0].lower() == "search":
+        await _settings_search(update, context)
+        return
+
+    pairs = _parse_settings_args(update.message.text)
+    if not pairs:
+        await update.message.reply_text("No valid key=value pairs found.")
         return
 
     if user_id not in user_settings:
         user_settings[user_id] = {}
 
-    parsed = []
-    for arg in context.args:
-        if "=" in arg:
-            key, val = arg.split("=", 1)
-            user_settings[user_id][key] = val
-            parsed.append(f"{key}={val}")
+    response_lines = []
+    for query, raw_value in pairs:
+        resolved_key, candidates = matcher.resolve(query)
 
-    if parsed:
-        await update.message.reply_text(f"Settings saved: {', '.join(parsed)}")
-    else:
-        await update.message.reply_text("No valid key=value pairs found.")
+        if resolved_key is None and not candidates:
+            response_lines.append(f"Unknown setting: '{query}'")
+            continue
+
+        if resolved_key is None:
+            # Ambiguous — show candidates
+            names = [f"  {c.key} ({c.label})" for c in candidates[:5]]
+            response_lines.append(f"Ambiguous: '{query}'. Did you mean:\n" + "\n".join(names))
+            continue
+
+        defn = config.registry.get(resolved_key)
+        result = validator.validate(defn, raw_value)
+
+        if not result.ok:
+            response_lines.append(f"{defn.label}: {result.error}")
+            continue
+
+        user_settings[user_id][resolved_key] = result.coerced_value
+        unit = f" {defn.unit}" if defn.unit else ""
+        response_lines.append(f"{defn.label}: {result.coerced_value}{unit}")
+        if result.warning:
+            response_lines.append(f"  Warning: {result.warning}")
+
+    await update.message.reply_text("\n".join(response_lines))
+
+
+async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /settings search <query> — placeholder, wired in next commit."""
+    await update.message.reply_text("Search not yet implemented. Use /settings key=value to set settings.")
 
 
 async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

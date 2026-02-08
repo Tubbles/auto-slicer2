@@ -7,6 +7,7 @@ from auto_slicer.config import Config
 from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
 from auto_slicer.settings_match import SettingsMatcher
 from auto_slicer.settings_validate import SettingsValidator, ValidationResult
+from auto_slicer.handlers import _parse_settings_args
 
 
 @pytest.fixture(scope="module")
@@ -239,3 +240,35 @@ class TestSettingsValidator:
         )
         result = validator.validate(defn, "anything goes here")
         assert result.ok
+
+
+# --- Argument parser tests ---
+
+class TestParseSettingsArgs:
+    def test_simple_key_value(self):
+        pairs = _parse_settings_args("/settings layer_height=0.2")
+        assert pairs == [("layer_height", "0.2")]
+
+    def test_multiple_pairs(self):
+        pairs = _parse_settings_args("/settings layer_height=0.2 infill_sparse_density=20")
+        assert pairs == [("layer_height", "0.2"), ("infill_sparse_density", "20")]
+
+    def test_double_quoted_key(self):
+        pairs = _parse_settings_args('/settings "layer height"=0.2')
+        assert pairs == [("layer height", "0.2")]
+
+    def test_single_quoted_key(self):
+        pairs = _parse_settings_args("/settings 'layer height'=0.2")
+        assert pairs == [("layer height", "0.2")]
+
+    def test_empty_args(self):
+        pairs = _parse_settings_args("/settings")
+        assert pairs == []
+
+    def test_no_equals(self):
+        pairs = _parse_settings_args("/settings justtext")
+        assert pairs == []
+
+    def test_bot_mention(self):
+        pairs = _parse_settings_args("/settings@mybot layer_height=0.2")
+        assert pairs == [("layer_height", "0.2")]
