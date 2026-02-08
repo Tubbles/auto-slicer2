@@ -417,6 +417,32 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(f"Slicing failed: {message}")
 
 
+# --- Inline keyboard helpers ---
+
+def _build_value_picker(defn) -> InlineKeyboardMarkup | None:
+    """Build an inline keyboard for bool/enum settings. Returns None for others."""
+    if defn.setting_type == "bool":
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton("True", callback_data=f"val:{defn.key}:true"),
+            InlineKeyboardButton("False", callback_data=f"val:{defn.key}:false"),
+        ]])
+
+    if defn.setting_type == "enum":
+        buttons = []
+        for opt_key, opt_label in defn.options.items():
+            cb_data = f"val:{defn.key}:{opt_key}"
+            if len(cb_data.encode()) > _MAX_CALLBACK_DATA:
+                continue  # Skip options that exceed Telegram's limit
+            buttons.append(InlineKeyboardButton(opt_label, callback_data=cb_data))
+        if not buttons:
+            return None
+        # Arrange in rows of 3
+        rows = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
+        return InlineKeyboardMarkup(rows)
+
+    return None
+
+
 # --- Inline keyboard callback handling ---
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -492,13 +518,65 @@ async def _cb_undo_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def _cb_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    config: Config = context.bot_data["config"]
+    key = query.data.removeprefix("pick:")
+
+    defn = config.registry.get(key)
+    if not defn:
+        await query.answer("Unknown setting.")
+        return
+
+    keyboard = _build_value_picker(defn)
+    if keyboard:
+        unit = f" ({defn.unit})" if defn.unit else ""
+        await query.answer()
+        await query.edit_message_text(
+            f"{defn.label}{unit}:", reply_markup=keyboard,
+        )
+    else:
+        unit = f" {defn.unit}" if defn.unit else ""
+        await query.answer()
+        await query.edit_message_text(
+            f"Type: /settings {defn.key}=<value>\n"
+            f"  {defn.label} [{defn.setting_type}] default: {defn.default_value}{unit}",
+        )
 
 
 async def _cb_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+
+    # Format: val:<key>:<value>
+    parts = query.data.split(":", 2)
+    if len(parts) < 3:
+        await query.answer("Invalid callback data.")
+        return
+    key, raw_value = parts[1], parts[2]
+
+    defn = config.registry.get(key)
+    if not defn:
+        await query.answer("Unknown setting.")
+        return
+
+    validator = SettingsValidator()
+    result = validator.validate(defn, raw_value)
+    if not result.ok:
+        await query.answer(result.error[:200])  # Telegram answer limit
+        return
+
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id][key] = result.coerced_value
+
+    unit = f" {defn.unit}" if defn.unit else ""
+    text = f"{defn.label}: {result.coerced_value}{unit}"
+    if result.warning:
+        text += f"\nWarning: {result.warning}"
+
+    await query.answer()
+    await query.edit_message_text(text)
 
 
 async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
