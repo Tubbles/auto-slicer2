@@ -20,14 +20,15 @@ HELP_TEXT = """Auto-Slicer Bot
 
 Send me an STL file and I'll slice it with CuraEngine.
 
-Commands:
-/help - Show this message
-/settings - Show available settings
-/settings key=value ... - Set slicer overrides
-/mysettings - Show your current settings
+Settings:
+/settings key=value - Set overrides (names or labels)
+/settings search <query> - Find settings by keyword
+/mysettings - Show your current overrides
+/preset - List presets (draft, standard, fine, strong)
+/preset <name> - Apply a preset
 /clear - Reset to defaults
 
-Admin commands:
+Admin:
 /adduser - Reply to add user (this chat only)
 /removeuser - Reply to remove user from this chat
 /listusers - Show allowed users for this chat

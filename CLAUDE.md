@@ -29,24 +29,55 @@ python auto-slicer2.py -c /path/to/config.ini
 ## Bot Commands
 
 - `/start` - Welcome message and usage
-- `/settings key=value ...` - Set per-user slicer overrides
-- `/mysettings` - Show current user settings
+- `/settings key=value ...` - Set overrides (supports names, labels, fuzzy matching)
+- `/settings search <query>` - Find settings by keyword
+- `/mysettings` - Show current user settings (friendly labels + units)
+- `/preset` - List available presets
+- `/preset <name>` - Apply a preset (draft, standard, fine, strong)
 - `/clear` - Reset to defaults
 
 ## Architecture
 
-**Config class**: Loads paths, defaults, and Telegram token from config.ini
+### File Structure
 
-**Per-user settings**: `user_settings` dict stores overrides keyed by Telegram user ID (in-memory, resets on restart)
+```
+auto_slicer/
+  __init__.py              # empty
+  config.py                # Config class, user file I/O, permission checks
+  slicer.py                # slice_file()
+  handlers.py              # Telegram command handlers, HELP_TEXT, user_settings
+  settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
+  settings_match.py        # SettingsMatcher (fuzzy/natural language resolution)
+  settings_validate.py     # SettingsValidator (type + bounds checking)
+  presets.py               # PresetManager + BUILTIN_PRESETS
+auto-slicer2.py            # thin entry point (argparse, app wiring)
+tests/
+  test_settings.py         # tests for registry, matcher, validator, presets
+```
 
-**Workflow**:
+### Key Components
 
-1. User sends `/settings layer_height=0.1` to set overrides
-2. User sends STL file as document
-3. Bot downloads to temp directory
-4. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
-5. On success: archives STL+gcode to timestamped subfolder, notifies user with path
-6. On failure: moves STL to `archive/errors/`, sends error message
+**Config** (`config.py`): Loads paths, defaults, and Telegram token from config.ini. Creates a `SettingsRegistry` at init time.
+
+**SettingsRegistry** (`settings_registry.py`): Loads CuraEngine's fdmprinter.def.json, flattens the nested settings tree, follows the inherits chain (e.g. creality_ender3 → creality_base → fdmprinter), and builds label→key indexes.
+
+**SettingsMatcher** (`settings_match.py`): Resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib).
+
+**SettingsValidator** (`settings_validate.py`): Type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
+
+**PresetManager** (`presets.py`): Built-in presets (draft/standard/fine/strong) and optional custom presets from presets.json.
+
+**Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID (in-memory, resets on restart).
+
+### Workflow
+
+1. User sends `/settings layer_height=0.1` (or `/settings "layer height"=0.1`, or `/preset fine`)
+2. Setting key resolved via SettingsMatcher, value validated via SettingsValidator
+3. User sends STL file as document
+4. Bot downloads to temp directory
+5. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
+6. On success: archives STL+gcode to timestamped subfolder, notifies user with path
+7. On failure: moves STL to `archive/errors/`, sends error message
 
 ## Configuration (config.ini)
 
