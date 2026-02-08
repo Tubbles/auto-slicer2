@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
@@ -10,6 +10,10 @@ from .slicer import slice_file
 from .settings_match import SettingsMatcher
 from .settings_validate import SettingsValidator
 from .presets import PresetManager
+
+
+# Maximum callback_data length in Telegram Bot API
+_MAX_CALLBACK_DATA = 64
 
 
 # Per-user settings overrides, keyed by Telegram user ID
@@ -409,3 +413,56 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         else:
             await update.message.reply_text(f"Slicing failed: {message}")
+
+
+# --- Inline keyboard callback handling ---
+
+async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route inline keyboard callbacks by prefix."""
+    query = update.callback_query
+    data = query.data
+
+    if data.startswith("preset:"):
+        await _cb_preset(update, context)
+    elif data == "undo_preset":
+        await _cb_undo_preset(update, context)
+    elif data.startswith("pick:"):
+        await _cb_pick(update, context)
+    elif data.startswith("val:"):
+        await _cb_val(update, context)
+    elif data.startswith("rm:"):
+        await _cb_rm(update, context)
+    elif data.startswith("disambig:"):
+        await _cb_disambig(update, context)
+    else:
+        await query.answer("Unknown action.")
+
+
+async def _cb_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
+
+
+async def _cb_undo_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
+
+
+async def _cb_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
+
+
+async def _cb_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
+
+
+async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
+
+
+async def _cb_disambig(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("Not implemented yet.")
