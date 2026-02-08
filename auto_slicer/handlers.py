@@ -233,11 +233,13 @@ async def preset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     presets = PresetManager()
 
     if not context.args:
-        lines = ["Available presets:\n"]
+        buttons = []
         for name, preset in presets.list_presets().items():
-            lines.append(f"  {name} - {preset['description']}")
-        lines.append("\nUsage: /preset <name>")
-        await update.message.reply_text("\n".join(lines))
+            buttons.append(InlineKeyboardButton(
+                name.capitalize(), callback_data=f"preset:{name}",
+            ))
+        keyboard = InlineKeyboardMarkup([buttons])
+        await update.message.reply_text("Choose a preset:", reply_markup=keyboard)
         return
 
     name = context.args[0].lower()
@@ -439,13 +441,54 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def _cb_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    config: Config = context.bot_data["config"]
+    user_id = update.effective_user.id
+    name = query.data.removeprefix("preset:")
+
+    presets = PresetManager()
+    preset = presets.get(name)
+    if not preset:
+        await query.answer(f"Unknown preset '{name}'.")
+        return
+
+    # Store previous settings for undo
+    context.user_data["prev_settings"] = dict(user_settings.get(user_id, {}))
+
+    if user_id not in user_settings:
+        user_settings[user_id] = {}
+    user_settings[user_id].update(preset["settings"])
+
+    lines = [f"Applied preset '{name}':\n"]
+    for key, val in preset["settings"].items():
+        defn = config.registry.get(key)
+        if defn:
+            unit = f" {defn.unit}" if defn.unit else ""
+            lines.append(f"  {defn.label}: {val}{unit}")
+        else:
+            lines.append(f"  {key}: {val}")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Undo", callback_data="undo_preset")],
+    ])
+    await query.answer()
+    await query.edit_message_text("\n".join(lines), reply_markup=keyboard)
 
 
 async def _cb_undo_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Not implemented yet.")
+    query = update.callback_query
+    user_id = update.effective_user.id
+    prev = context.user_data.get("prev_settings")
+
+    if prev is None:
+        await query.answer("Nothing to undo.")
+        return
+
+    user_settings[user_id] = prev
+    context.user_data.pop("prev_settings", None)
+
+    await query.answer("Preset undone.")
+    await query.edit_message_text("Preset undone. Previous settings restored.")
 
 
 async def _cb_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
