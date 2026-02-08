@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from .settings_registry import SettingsRegistry
+
 
 USERS_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / "allowed_users.txt"
 RELOAD_CHAT_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / ".reload_chat_id"
@@ -27,6 +29,7 @@ class Config:
                     self.chat_users.add((int(user_id.strip()), int(chat_id.strip())))
         notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
         self.notify_chat_id: int | None = int(notify) if notify else None
+        self.registry = SettingsRegistry(self.def_dir, self.printer_def)
 
 
 def save_users(config: Config) -> None:
