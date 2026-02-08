@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 
 USERS_FILE = Path(__file__).parent / "allowed_users.txt"
+RELOAD_CHAT_FILE = Path(__file__).parent / ".reload_chat_id"
 
 
 class Config:
@@ -247,6 +248,7 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     await update.message.reply_text(f"{result.stdout.strip()}\n\nRestarting...")
+    RELOAD_CHAT_FILE.write_text(str(update.effective_chat.id))
     os._exit(0)
 
 
@@ -334,10 +336,19 @@ async def listusers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def post_init(app) -> None:
-    """Send startup notification."""
+    """Send startup notification to reload origin chat, or fallback to config."""
     config: Config = app.bot_data["config"]
-    if config.notify_chat_id:
-        await app.bot.send_message(config.notify_chat_id, "Auto-Slicer Bot is online!")
+    chat_id = None
+    if RELOAD_CHAT_FILE.exists():
+        try:
+            chat_id = int(RELOAD_CHAT_FILE.read_text().strip())
+        except ValueError:
+            pass
+        RELOAD_CHAT_FILE.unlink()
+    if not chat_id:
+        chat_id = config.notify_chat_id
+    if chat_id:
+        await app.bot.send_message(chat_id, "Auto-Slicer Bot is online!")
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
