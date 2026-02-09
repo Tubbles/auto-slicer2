@@ -12,7 +12,10 @@ from auto_slicer.settings_registry import (
 )
 from auto_slicer.settings_match import resolve_setting, _match_exact_key, _match_substring
 from auto_slicer.settings_validate import validate, ValidationResult
-from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
+from auto_slicer.handlers import (
+    _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA,
+    _resolve_pair, _search_settings, _format_search_results,
+)
 from auto_slicer.presets import load_presets, BUILTIN_PRESETS
 
 
@@ -544,3 +547,108 @@ class TestInlineKeyboard:
             assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
                 f"preset callback_data too long for {name}: {len(cb.encode())} bytes"
             )
+
+
+class TestResolvePair:
+    """Tests for the _resolve_pair pure function."""
+
+    def test_ok(self, registry):
+        result = _resolve_pair(registry, "layer_height", "0.2")
+        assert result["status"] == "ok"
+        assert result["key"] == "layer_height"
+        assert result["value"] == "0.2"
+
+    def test_unknown(self, registry):
+        result = _resolve_pair(registry, "nonexistent_xyz_123", "0.2")
+        assert result["status"] == "unknown"
+        assert result["query"] == "nonexistent_xyz_123"
+
+    def test_invalid(self, registry):
+        result = _resolve_pair(registry, "layer_height", "not_a_number")
+        assert result["status"] == "invalid"
+        assert "error" in result
+
+    def test_ambiguous(self, registry):
+        result = _resolve_pair(registry, "speed", "60")
+        assert result["status"] == "ambiguous"
+        assert len(result["candidates"]) > 1
+
+
+class TestSearchSettings:
+    """Tests for the _search_settings pure function."""
+
+    def test_finds_by_key(self):
+        defn = SettingDefinition(
+            key="layer_height", label="Layer Height", description="Height of each layer",
+            setting_type="float", default_value="0.2", unit="mm",
+            options=None, minimum_value=None, maximum_value=None,
+            minimum_value_warning=None, maximum_value_warning=None,
+            category="quality",
+        )
+        results = _search_settings({"layer_height": defn}, "layer")
+        assert len(results) == 1
+        assert results[0].key == "layer_height"
+
+    def test_finds_by_label(self):
+        defn = SettingDefinition(
+            key="my_key", label="Print Speed", description="",
+            setting_type="float", default_value="60", unit="mm/s",
+            options=None, minimum_value=None, maximum_value=None,
+            minimum_value_warning=None, maximum_value_warning=None,
+            category="speed",
+        )
+        results = _search_settings({"my_key": defn}, "print speed")
+        assert len(results) == 1
+
+    def test_no_match(self):
+        defn = SettingDefinition(
+            key="abc", label="Abc", description="Abc setting",
+            setting_type="str", default_value="", unit="",
+            options=None, minimum_value=None, maximum_value=None,
+            minimum_value_warning=None, maximum_value_warning=None,
+            category="misc",
+        )
+        results = _search_settings({"abc": defn}, "zzzzz")
+        assert results == []
+
+
+class TestFormatSearchResults:
+    """Tests for the _format_search_results pure function."""
+
+    def test_basic_format(self):
+        defn = SettingDefinition(
+            key="layer_height", label="Layer Height", description="",
+            setting_type="float", default_value="0.2", unit="mm",
+            options=None, minimum_value=None, maximum_value=None,
+            minimum_value_warning=None, maximum_value_warning=None,
+            category="quality",
+        )
+        text = _format_search_results([defn], "layer", {})
+        assert "layer_height" in text
+        assert "Layer Height" in text
+        assert "0.2" in text
+
+    def test_shows_current_override(self):
+        defn = SettingDefinition(
+            key="layer_height", label="Layer Height", description="",
+            setting_type="float", default_value="0.2", unit="mm",
+            options=None, minimum_value=None, maximum_value=None,
+            minimum_value_warning=None, maximum_value_warning=None,
+            category="quality",
+        )
+        text = _format_search_results([defn], "layer", {"layer_height": "0.1"})
+        assert "(set: 0.1)" in text
+
+    def test_truncates_long_text(self):
+        defns = []
+        for i in range(50):
+            defns.append(SettingDefinition(
+                key=f"setting_{i}", label=f"Setting Number {i}" * 10,
+                description="x" * 200,
+                setting_type="str", default_value="val", unit="",
+                options=None, minimum_value=None, maximum_value=None,
+                minimum_value_warning=None, maximum_value_warning=None,
+                category="misc",
+            ))
+        text = _format_search_results(defns, "setting", {})
+        assert len(text) <= 4096

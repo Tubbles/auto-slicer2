@@ -21,6 +21,56 @@ _MAX_CALLBACK_DATA = 64
 user_settings: dict[int, dict] = {}
 
 
+def _resolve_pair(registry, query: str, raw_value: str) -> dict:
+    """Resolve one user query+value pair against the registry.
+
+    Returns a dict with 'status' being one of:
+      'unknown'   — no match found (has 'query')
+      'ambiguous' — multiple candidates (has 'query', 'candidates')
+      'invalid'   — validation failed (has 'defn', 'error')
+      'ok'        — success (has 'key', 'defn', 'value', 'warning')
+    """
+    resolved_key, candidates = resolve_setting(registry, query)
+    if resolved_key is None and not candidates:
+        return {"status": "unknown", "query": query}
+    if resolved_key is None:
+        return {"status": "ambiguous", "query": query, "candidates": candidates}
+    defn = registry.get(resolved_key)
+    result = validate_setting(defn, raw_value)
+    if not result.ok:
+        return {"status": "invalid", "defn": defn, "error": result.error}
+    return {"status": "ok", "key": resolved_key, "defn": defn,
+            "value": result.coerced_value, "warning": result.warning}
+
+
+def _search_settings(all_settings: dict, query: str) -> list:
+    """Filter settings by keyword match on key, label, or description."""
+    return [
+        defn for key, defn in all_settings.items()
+        if (query in key.lower()
+            or query in defn.label.lower()
+            or query in defn.description.lower())
+    ]
+
+
+def _format_search_results(results: list, query: str, overrides: dict) -> str:
+    """Format search results as a text block (capped at 4096 chars)."""
+    lines = [f"Settings matching '{query}' ({min(len(results), 10)} of {len(results)}):\n"]
+    for defn in results[:10]:
+        unit = f" {defn.unit}" if defn.unit else ""
+        current = overrides.get(defn.key)
+        current_str = f" (set: {current})" if current else ""
+        lines.append(
+            f"  {defn.key}\n"
+            f"    {defn.label} [{defn.setting_type}]"
+            f" default: {defn.default_value}{unit}{current_str}"
+        )
+    text = "\n".join(lines)
+    if len(text) > 4096:
+        text = text[:4090] + "\n..."
+    return text
+
+
 HELP_TEXT = """Auto-Slicer Bot
 
 Send me an STL file and I'll slice it with CuraEngine.
@@ -123,20 +173,17 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     response_lines = []
     for query, raw_value in pairs:
-        resolved_key, candidates = resolve_setting(config.registry, query)
+        resolved = _resolve_pair(config.registry, query, raw_value)
 
-        if resolved_key is None and not candidates:
+        if resolved["status"] == "unknown":
             response_lines.append(f"Unknown setting: '{query}'")
             continue
 
-        if resolved_key is None:
-            # Ambiguous — send buttons for each candidate (needs its own message)
+        if resolved["status"] == "ambiguous":
+            # Send buttons for each candidate (needs its own message)
             buttons = []
-            for c in candidates[:5]:
-                if raw_value:
-                    cb_data = f"disambig:{c.key}:{raw_value}"
-                else:
-                    cb_data = f"pick:{c.key}"
+            for c in resolved["candidates"][:5]:
+                cb_data = f"disambig:{c.key}:{raw_value}" if raw_value else f"pick:{c.key}"
                 if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
                     buttons.append([InlineKeyboardButton(
                         f"{c.label} ({c.key})", callback_data=cb_data,
@@ -148,24 +195,22 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     reply_markup=keyboard,
                 )
             else:
-                names = [f"  {c.key} ({c.label})" for c in candidates[:5]]
+                names = [f"  {c.key} ({c.label})" for c in resolved["candidates"][:5]]
                 response_lines.append(
                     f"Ambiguous: '{query}'. Did you mean:\n" + "\n".join(names)
                 )
             continue
 
-        defn = config.registry.get(resolved_key)
-        result = validate_setting(defn, raw_value)
-
-        if not result.ok:
-            response_lines.append(f"{defn.label}: {result.error}")
+        if resolved["status"] == "invalid":
+            response_lines.append(f"{resolved['defn'].label}: {resolved['error']}")
             continue
 
-        user_settings[user_id][resolved_key] = result.coerced_value
+        user_settings[user_id][resolved["key"]] = resolved["value"]
+        defn = resolved["defn"]
         unit = f" {defn.unit}" if defn.unit else ""
-        response_lines.append(f"{defn.label}: {result.coerced_value}{unit}")
-        if result.warning:
-            response_lines.append(f"  Warning: {result.warning}")
+        response_lines.append(f"{defn.label}: {resolved['value']}{unit}")
+        if resolved["warning"]:
+            response_lines.append(f"  Warning: {resolved['warning']}")
 
     if response_lines:
         await update.message.reply_text("\n".join(response_lines))
@@ -182,38 +227,21 @@ async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     overrides = user_settings.get(user_id, {})
-    results = []
-    for key, defn in config.registry.all_settings().items():
-        if (query in key.lower()
-                or query in defn.label.lower()
-                or query in defn.description.lower()):
-            results.append(defn)
+    results = _search_settings(config.registry.all_settings(), query)
 
     if not results:
         await update.message.reply_text(f"No settings found matching '{query}'.")
         return
 
-    lines = [f"Settings matching '{query}' ({min(len(results), 10)} of {len(results)}):\n"]
+    text = _format_search_results(results, query, overrides)
     buttons = []
     for defn in results[:10]:
-        unit = f" {defn.unit}" if defn.unit else ""
-        current = overrides.get(defn.key)
-        current_str = f" (set: {current})" if current else ""
-        lines.append(
-            f"  {defn.key}\n"
-            f"    {defn.label} [{defn.setting_type}]"
-            f" default: {defn.default_value}{unit}{current_str}"
-        )
         cb_data = f"pick:{defn.key}"
         if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
             buttons.append([InlineKeyboardButton(
                 f"Set {defn.label}", callback_data=cb_data,
             )])
 
-    text = "\n".join(lines)
-    # Telegram message limit is 4096 chars
-    if len(text) > 4096:
-        text = text[:4090] + "\n..."
     keyboard = InlineKeyboardMarkup(buttons) if buttons else None
     await update.message.reply_text(text, reply_markup=keyboard)
 
