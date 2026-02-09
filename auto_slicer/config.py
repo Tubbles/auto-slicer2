@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from .settings_registry import SettingsRegistry
+from .settings_registry import load_registry
 
 
 USERS_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / "allowed_users.txt"
@@ -29,7 +29,7 @@ class Config:
                     self.chat_users.add((int(user_id.strip()), int(chat_id.strip())))
         notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
         self.notify_chat_id: int | None = int(notify) if notify else None
-        self.registry = SettingsRegistry(self.def_dir, self.printer_def)
+        self.registry = load_registry(self.def_dir, self.printer_def)
         # Apply bounds overrides from config (e.g. retraction_amount.maximum_value = 4)
         if config.has_section("BOUNDS_OVERRIDES"):
             for entry, value in config["BOUNDS_OVERRIDES"].items():

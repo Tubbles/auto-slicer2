@@ -4,7 +4,10 @@ import configparser
 import pytest
 
 from auto_slicer.config import Config
-from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
+from auto_slicer.settings_registry import (
+    SettingsRegistry, SettingDefinition,
+    _flatten_settings, _apply_overrides, _build_indexes,
+)
 from auto_slicer.settings_match import SettingsMatcher
 from auto_slicer.settings_validate import validate, ValidationResult
 from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
@@ -87,6 +90,77 @@ class TestSettingsRegistry:
         assert defn is not None
         # The expression "0.8 * min(extruderValues(...))" should be None
         assert defn.maximum_value_warning is None
+
+
+# --- Pure registry function tests ---
+
+class TestRegistryFunctions:
+    def test_flatten_settings_simple(self):
+        node = {
+            "my_float": {
+                "type": "float",
+                "label": "My Float",
+                "description": "A float",
+                "default_value": 1.0,
+                "unit": "mm",
+            },
+        }
+        result = _flatten_settings(node, category="Test")
+        assert "my_float" in result
+        assert result["my_float"].label == "My Float"
+        assert result["my_float"].category == "Test"
+
+    def test_flatten_settings_with_children(self):
+        node = {
+            "parent": {
+                "type": "category",
+                "label": "Parent Cat",
+                "children": {
+                    "child_bool": {
+                        "type": "bool",
+                        "label": "Child",
+                        "description": "",
+                        "default_value": False,
+                    },
+                },
+            },
+        }
+        result = _flatten_settings(node, category="")
+        assert "child_bool" in result
+        assert result["child_bool"].category == "Parent Cat"
+
+    def test_flatten_settings_skips_unsupported_types(self):
+        node = {
+            "poly": {"type": "polygon", "label": "P", "description": ""},
+        }
+        result = _flatten_settings(node, category="")
+        assert len(result) == 0
+
+    def test_apply_overrides(self):
+        settings = {
+            "test_key": SettingDefinition(
+                key="test_key", label="Test", description="",
+                setting_type="float", default_value=1.0,
+            ),
+        }
+        _apply_overrides(settings, {"test_key": {"default_value": 2.0}})
+        assert settings["test_key"].default_value == 2.0
+
+    def test_apply_overrides_ignores_unknown_keys(self):
+        settings = {}
+        _apply_overrides(settings, {"unknown": {"default_value": 5}})
+        assert len(settings) == 0
+
+    def test_build_indexes(self):
+        settings = {
+            "layer_height": SettingDefinition(
+                key="layer_height", label="Layer Height", description="",
+                setting_type="float", default_value=0.2,
+            ),
+        }
+        label_map, norm_map = _build_indexes(settings)
+        assert label_map["layer height"] == "layer_height"
+        assert norm_map["layer_height"] == "layer_height"
 
 
 # --- SettingsMatcher tests ---
