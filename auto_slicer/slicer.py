@@ -6,28 +6,42 @@ from pathlib import Path
 from .config import Config
 
 
-def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
-    """Slice an STL file and return (success, message, archive_path)."""
-    active_settings = config.defaults.copy()
-    active_settings.update(overrides)
+def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[str, str]:
+    """Merge default settings with user overrides."""
+    result = defaults.copy()
+    result.update(overrides)
+    return result
 
-    gcode_path = stl_path.with_suffix(".gcode")
 
-    # CuraEngine needs both definitions and extruders directories
-    extruders_dir = config.def_dir.parent / "extruders"
-
+def build_cura_command(
+    cura_bin: Path, def_dir: Path, printer_def: str,
+    stl_path: Path, gcode_path: Path, settings: dict[str, str],
+) -> list[str]:
+    """Build the CuraEngine command line (pure)."""
+    extruders_dir = def_dir.parent / "extruders"
     cmd = [
-        str(config.cura_bin),
+        str(cura_bin),
         "slice",
-        "-d", str(config.def_dir),
+        "-d", str(def_dir),
         "-d", str(extruders_dir),
-        "-j", config.printer_def,
+        "-j", printer_def,
         "-l", str(stl_path),
         "-o", str(gcode_path),
     ]
-
-    for key, val in active_settings.items():
+    for key, val in settings.items():
         cmd.extend(["-s", f"{key}={val}"])
+    return cmd
+
+
+def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
+    """Slice an STL file and return (success, message, archive_path)."""
+    active_settings = merge_settings(config.defaults, overrides)
+    gcode_path = stl_path.with_suffix(".gcode")
+
+    cmd = build_cura_command(
+        config.cura_bin, config.def_dir, config.printer_def,
+        stl_path, gcode_path, active_settings,
+    )
 
     print(f"[Slicing] {stl_path.name}")
     print(f"[Command] {' '.join(cmd)}")
@@ -57,7 +71,6 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(stl_path), error_dir / stl_path.name)
-            # Include both stdout and stderr in error message
             output = result.stdout + result.stderr
             error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
             print(f"[Failed] {error_msg}")
