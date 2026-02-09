@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
-from .settings_match import SettingsMatcher
+from .settings_match import resolve_setting
 from .settings_validate import validate as validate_setting
 from .presets import load_presets
 
@@ -90,8 +90,6 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not is_allowed(config, user_id, update.effective_chat.id):
         return
 
-    matcher = SettingsMatcher(config.registry)
-
     if not context.args:
         await update.message.reply_text(
             "Usage: /settings key=value ...\n\n"
@@ -125,7 +123,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     response_lines = []
     for query, raw_value in pairs:
-        resolved_key, candidates = matcher.resolve(query)
+        resolved_key, candidates = resolve_setting(config.registry, query)
 
         if resolved_key is None and not candidates:
             response_lines.append(f"Unknown setting: '{query}'")

@@ -8,7 +8,7 @@ from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
     _flatten_settings, _apply_overrides, _build_indexes,
 )
-from auto_slicer.settings_match import SettingsMatcher
+from auto_slicer.settings_match import resolve_setting, _match_exact_key, _match_substring
 from auto_slicer.settings_validate import validate, ValidationResult
 from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
 from auto_slicer.presets import load_presets, BUILTIN_PRESETS
@@ -25,10 +25,6 @@ def config():
 def registry(config):
     return config.registry
 
-
-@pytest.fixture(scope="module")
-def matcher(registry):
-    return SettingsMatcher(registry)
 
 
 
@@ -166,49 +162,94 @@ class TestRegistryFunctions:
 # --- SettingsMatcher tests ---
 
 class TestSettingsMatcher:
-    def test_exact_key_match(self, matcher):
-        key, candidates = matcher.resolve("layer_height")
+    def test_exact_key_match(self, registry):
+        key, candidates = resolve_setting(registry,"layer_height")
         assert key == "layer_height"
         assert len(candidates) == 1
 
-    def test_spaces_to_underscores(self, matcher):
-        key, candidates = matcher.resolve("layer height")
+    def test_spaces_to_underscores(self, registry):
+        key, candidates = resolve_setting(registry,"layer height")
         assert key == "layer_height"
 
-    def test_exact_label_match(self, matcher):
-        key, candidates = matcher.resolve("Layer Height")
+    def test_exact_label_match(self, registry):
+        key, candidates = resolve_setting(registry,"Layer Height")
         assert key == "layer_height"
 
-    def test_exact_label_case_insensitive(self, matcher):
-        key, candidates = matcher.resolve("layer height")
+    def test_exact_label_case_insensitive(self, registry):
+        key, candidates = resolve_setting(registry,"layer height")
         assert key == "layer_height"
 
-    def test_typo_fuzzy_match(self, matcher):
-        key, candidates = matcher.resolve("layer_hieght")
+    def test_typo_fuzzy_match(self, registry):
+        key, candidates = resolve_setting(registry,"layer_hieght")
         assert len(candidates) > 0
         # Should find layer_height among candidates
         candidate_keys = [c.key for c in candidates]
         assert "layer_height" in candidate_keys
 
-    def test_substring_ambiguous(self, matcher):
-        key, candidates = matcher.resolve("layer")
+    def test_substring_ambiguous(self, registry):
+        key, candidates = resolve_setting(registry,"layer")
         # "layer" is a substring of many settings — should be ambiguous
         assert key is None
         assert len(candidates) > 1
 
-    def test_no_match(self, matcher):
-        key, candidates = matcher.resolve("xyznotarealkey")
+    def test_no_match(self, registry):
+        key, candidates = resolve_setting(registry,"xyznotarealkey")
         assert key is None
         assert len(candidates) == 0
 
-    def test_exact_enum_key(self, matcher):
-        key, candidates = matcher.resolve("adhesion_type")
+    def test_exact_enum_key(self, registry):
+        key, candidates = resolve_setting(registry,"adhesion_type")
         assert key == "adhesion_type"
         assert len(candidates) == 1
 
-    def test_label_match_for_support(self, matcher):
-        key, candidates = matcher.resolve("Generate Support")
+    def test_label_match_for_support(self, registry):
+        key, candidates = resolve_setting(registry,"Generate Support")
         assert key == "support_enable"
+
+
+# --- Matcher pure function tests ---
+
+class TestMatcherFunctions:
+    def test_match_exact_key_found(self):
+        settings = {
+            "my_key": SettingDefinition(
+                key="my_key", label="My Key", description="",
+                setting_type="float", default_value=1.0,
+            ),
+        }
+        key, candidates = _match_exact_key(settings, "my_key")
+        assert key == "my_key"
+        assert len(candidates) == 1
+
+    def test_match_exact_key_not_found(self):
+        key, candidates = _match_exact_key({}, "nope")
+        assert key is None
+        assert candidates == []
+
+    def test_match_substring_single(self):
+        settings = {
+            "infill_density": SettingDefinition(
+                key="infill_density", label="Infill Density", description="",
+                setting_type="float", default_value=20,
+            ),
+        }
+        key, candidates = _match_substring(settings, "infill")
+        assert key == "infill_density"
+
+    def test_match_substring_ambiguous(self):
+        settings = {
+            "top_layers": SettingDefinition(
+                key="top_layers", label="Top Layers", description="",
+                setting_type="int", default_value=4,
+            ),
+            "bottom_layers": SettingDefinition(
+                key="bottom_layers", label="Bottom Layers", description="",
+                setting_type="int", default_value=4,
+            ),
+        }
+        key, candidates = _match_substring(settings, "layers")
+        assert key is None
+        assert len(candidates) == 2
 
 
 # --- SettingsValidator tests ---
