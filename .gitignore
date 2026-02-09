@@ -1,5 +1,6 @@
-/config.ini
 /allowed_users.txt
 /archive
-/__pycache__/
+/config.ini
+/.claude/settings.local.json
 /.reload_chat_id
+__pycache__/

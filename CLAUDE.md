@@ -36,6 +36,13 @@ python auto-slicer2.py -c /path/to/config.ini
 - `/preset <name>` - Apply a preset directly (draft, standard, fine, strong)
 - `/clear` - Reset to defaults
 
+## Coding Style
+
+- **No OOP patterns.** Do not use inheritance, polymorphism, or class hierarchies. Dataclasses for holding data are fine; classes with methods that dispatch on type or override behavior are not. Think C/Rust, not Java.
+- **Small, focused functions.** Aim for 5-10 lines per function. Extract logic into named helpers rather than writing long functions.
+- **Pure functions where possible.** Functions should take inputs, return outputs, and avoid side effects. Side effects (I/O, mutating shared state) should be pushed to the edges — thin handler functions that call pure logic.
+- **Test everything with pytest.** Every non-trivial function should have corresponding tests in `tests/`. Pure functions are easy to test; if a function is hard to test, it probably does too much.
+
 ## Architecture
 
 ### File Structure
