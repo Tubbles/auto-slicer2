@@ -8,7 +8,7 @@ from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
 from auto_slicer.settings_match import SettingsMatcher
 from auto_slicer.settings_validate import validate, ValidationResult
 from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
-from auto_slicer.presets import PresetManager, BUILTIN_PRESETS
+from auto_slicer.presets import load_presets, BUILTIN_PRESETS
 
 
 @pytest.fixture(scope="module")
@@ -275,41 +275,41 @@ class TestParseSettingsArgs:
 
 class TestPresets:
     def test_builtin_presets_exist(self):
-        pm = PresetManager()
-        names = pm.names()
-        assert "draft" in names
-        assert "standard" in names
-        assert "fine" in names
-        assert "strong" in names
+        presets = load_presets()
+        assert "draft" in presets
+        assert "standard" in presets
+        assert "fine" in presets
+        assert "strong" in presets
 
     def test_get_preset(self):
-        pm = PresetManager()
-        draft = pm.get("draft")
+        presets = load_presets()
+        draft = presets.get("draft")
         assert draft is not None
         assert "settings" in draft
         assert "description" in draft
         assert "layer_height" in draft["settings"]
 
     def test_get_case_insensitive(self):
-        pm = PresetManager()
-        assert pm.get("Draft") is not None
+        presets = load_presets()
+        # load_presets stores keys as lowercase
+        assert presets.get("draft") is not None
 
     def test_get_nonexistent(self):
-        pm = PresetManager()
-        assert pm.get("nonexistent") is None
+        presets = load_presets()
+        assert presets.get("nonexistent") is None
 
     def test_preset_settings_are_valid_keys(self, registry):
-        pm = PresetManager()
-        for name, preset in pm.list_presets().items():
+        presets = load_presets()
+        for name, preset in presets.items():
             for key in preset["settings"]:
                 assert registry.get(key) is not None, (
                     f"Preset '{name}' has unknown key '{key}'"
                 )
 
     def test_draft_has_higher_layer_height_than_fine(self):
-        pm = PresetManager()
-        draft_lh = float(pm.get("draft")["settings"]["layer_height"])
-        fine_lh = float(pm.get("fine")["settings"]["layer_height"])
+        presets = load_presets()
+        draft_lh = float(presets["draft"]["settings"]["layer_height"])
+        fine_lh = float(presets["fine"]["settings"]["layer_height"])
         assert draft_lh > fine_lh
 
 
@@ -379,8 +379,8 @@ class TestInlineKeyboard:
             )
 
     def test_preset_callback_data_fits(self):
-        pm = PresetManager()
-        for name in pm.names():
+        presets = load_presets()
+        for name in presets:
             cb = f"preset:{name}"
             assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
                 f"preset callback_data too long for {name}: {len(cb.encode())} bytes"

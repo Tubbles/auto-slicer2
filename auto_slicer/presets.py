@@ -50,19 +50,10 @@ BUILTIN_PRESETS: dict[str, dict] = {
 }
 
 
-class PresetManager:
-    def __init__(self, custom_presets_path: Path | None = None):
-        self._presets = dict(BUILTIN_PRESETS)
-        if custom_presets_path and custom_presets_path.exists():
-            with open(custom_presets_path) as f:
-                custom = json.load(f)
-            self._presets.update(custom)
-
-    def list_presets(self) -> dict[str, dict]:
-        return self._presets
-
-    def get(self, name: str) -> dict | None:
-        return self._presets.get(name.lower())
-
-    def names(self) -> list[str]:
-        return list(self._presets.keys())
+def load_presets(custom_presets_path: Path | None = None) -> dict[str, dict]:
+    """Load built-in presets, optionally merging custom presets from a JSON file."""
+    presets = dict(BUILTIN_PRESETS)
+    if custom_presets_path and custom_presets_path.exists():
+        with open(custom_presets_path) as f:
+            presets.update(json.load(f))
+    return presets

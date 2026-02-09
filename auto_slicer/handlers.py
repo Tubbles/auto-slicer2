@@ -10,7 +10,7 @@ from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
 from .settings_match import SettingsMatcher
 from .settings_validate import validate as validate_setting
-from .presets import PresetManager
+from .presets import load_presets
 
 
 # Maximum callback_data length in Telegram Bot API
@@ -276,11 +276,11 @@ async def preset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not is_allowed(config, user_id, update.effective_chat.id):
         return
 
-    presets = PresetManager()
+    presets = load_presets()
 
     if not context.args:
         buttons = []
-        for name, preset in presets.list_presets().items():
+        for name, preset in presets.items():
             buttons.append(InlineKeyboardButton(
                 name.capitalize(), callback_data=f"preset:{name}",
             ))
@@ -292,7 +292,7 @@ async def preset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     preset = presets.get(name)
     if not preset:
         await update.message.reply_text(
-            f"Unknown preset '{name}'. Available: {', '.join(presets.names())}"
+            f"Unknown preset '{name}'. Available: {', '.join(presets.keys())}"
         )
         return
 
@@ -521,7 +521,7 @@ async def _cb_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     user_id = update.effective_user.id
     name = query.data.removeprefix("preset:")
 
-    presets = PresetManager()
+    presets = load_presets()
     preset = presets.get(name)
     if not preset:
         await query.answer(f"Unknown preset '{name}'.")
