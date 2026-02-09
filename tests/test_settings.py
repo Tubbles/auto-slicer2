@@ -1,9 +1,11 @@
 """Tests for settings registry, matcher, and validator."""
 
 import configparser
+from pathlib import Path
+
 import pytest
 
-from auto_slicer.config import Config
+from auto_slicer.config import load_config, _parse_admin_users, is_allowed, is_admin, Config
 from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
     _flatten_settings, _apply_overrides, _build_indexes,
@@ -18,7 +20,7 @@ from auto_slicer.presets import load_presets, BUILTIN_PRESETS
 def config():
     c = configparser.ConfigParser()
     c.read("config.ini")
-    return Config(c)
+    return load_config(c)
 
 
 @pytest.fixture(scope="module")
@@ -449,6 +451,48 @@ class TestBoundsOverrides:
         # 4mm should be exactly at the limit
         result = validate(defn, "4")
         assert result.ok
+
+
+# --- Config function tests ---
+
+class TestConfigFunctions:
+    def test_parse_admin_users_single(self):
+        assert _parse_admin_users("123") == {123}
+
+    def test_parse_admin_users_multiple(self):
+        assert _parse_admin_users("1, 2, 3") == {1, 2, 3}
+
+    def test_parse_admin_users_empty(self):
+        assert _parse_admin_users("") == set()
+
+    def test_is_allowed_no_restrictions(self):
+        cfg = Config(
+            archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
+            printer_def="", defaults={}, telegram_token="",
+            admin_users=set(), chat_users=set(), notify_chat_id=None,
+            registry=None,
+        )
+        assert is_allowed(cfg, 999, 888) is True
+
+    def test_is_allowed_admin_global(self):
+        cfg = Config(
+            archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
+            printer_def="", defaults={}, telegram_token="",
+            admin_users={42}, chat_users=set(), notify_chat_id=None,
+            registry=None,
+        )
+        assert is_allowed(cfg, 42, 100) is True
+        assert is_allowed(cfg, 99, 100) is False
+
+    def test_is_admin(self):
+        cfg = Config(
+            archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
+            printer_def="", defaults={}, telegram_token="",
+            admin_users={42}, chat_users=set(), notify_chat_id=None,
+            registry=None,
+        )
+        assert is_admin(cfg, 42) is True
+        assert is_admin(cfg, 99) is False
 
 
 # --- Inline keyboard tests ---

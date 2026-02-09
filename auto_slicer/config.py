@@ -1,46 +1,90 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
-from .settings_registry import load_registry
+from .settings_registry import SettingsRegistry, load_registry
 
 
 USERS_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / "allowed_users.txt"
 RELOAD_CHAT_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / ".reload_chat_id"
 
 
+@dataclass
 class Config:
-    def __init__(self, config):
-        self.archive_dir = Path(config["PATHS"]["archive_directory"])
-        self.cura_bin = Path(config["PATHS"]["cura_engine_path"])
-        self.def_dir = Path(config["PATHS"]["definition_dir"])
-        self.printer_def = config["PATHS"]["printer_definition"]
-        self.defaults = dict(config["DEFAULT_SETTINGS"])
-        self.telegram_token = config["TELEGRAM"]["bot_token"]
-        # Load admin users from config (global access)
-        allowed = config["TELEGRAM"].get("allowed_users", "").strip()
-        self.admin_users: set[int] = set(int(x) for x in allowed.split(",") if x.strip())
-        # Load chat-specific user permissions from file: "user_id,chat_id" per line
-        self.chat_users: set[tuple[int, int]] = set()
-        if USERS_FILE.exists():
-            for line in USERS_FILE.read_text().strip().split("\n"):
-                line = line.split("#")[0].strip()  # Remove comments
-                if "," in line:
-                    user_id, chat_id = line.split(",", 1)
-                    self.chat_users.add((int(user_id.strip()), int(chat_id.strip())))
-        notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
-        self.notify_chat_id: int | None = int(notify) if notify else None
-        self.registry = load_registry(self.def_dir, self.printer_def)
-        # Apply bounds overrides from config (e.g. retraction_amount.maximum_value = 4)
-        if config.has_section("BOUNDS_OVERRIDES"):
-            for entry, value in config["BOUNDS_OVERRIDES"].items():
-                # Format: setting_key.field = value (e.g. retraction_amount.maximum_value = 4)
-                if "." not in entry:
-                    continue
-                key, field = entry.rsplit(".", 1)
-                defn = self.registry.get(key)
-                if defn and field in ("minimum_value", "maximum_value",
-                                      "minimum_value_warning", "maximum_value_warning"):
-                    setattr(defn, field, float(value))
+    archive_dir: Path
+    cura_bin: Path
+    def_dir: Path
+    printer_def: str
+    defaults: dict[str, str]
+    telegram_token: str
+    admin_users: set[int]
+    chat_users: set[tuple[int, int]]
+    notify_chat_id: int | None
+    registry: SettingsRegistry
+
+
+def _parse_admin_users(raw: str) -> set[int]:
+    """Parse comma-separated user IDs into a set."""
+    return set(int(x) for x in raw.split(",") if x.strip())
+
+
+def _load_chat_users(users_file: Path) -> set[tuple[int, int]]:
+    """Load chat-specific user permissions from file: 'user_id,chat_id' per line."""
+    result: set[tuple[int, int]] = set()
+    if not users_file.exists():
+        return result
+    for line in users_file.read_text().strip().split("\n"):
+        line = line.split("#")[0].strip()
+        if "," in line:
+            user_id, chat_id = line.split(",", 1)
+            result.add((int(user_id.strip()), int(chat_id.strip())))
+    return result
+
+
+def _apply_bounds_overrides(registry: SettingsRegistry, config_section) -> None:
+    """Apply bounds overrides from config (e.g. retraction_amount.maximum_value = 4)."""
+    for entry, value in config_section.items():
+        if "." not in entry:
+            continue
+        key, field_name = entry.rsplit(".", 1)
+        defn = registry.get(key)
+        if defn and field_name in ("minimum_value", "maximum_value",
+                                   "minimum_value_warning", "maximum_value_warning"):
+            setattr(defn, field_name, float(value))
+
+
+def load_config(config) -> Config:
+    """Build a Config from a parsed configparser object."""
+    archive_dir = Path(config["PATHS"]["archive_directory"])
+    cura_bin = Path(config["PATHS"]["cura_engine_path"])
+    def_dir = Path(config["PATHS"]["definition_dir"])
+    printer_def = config["PATHS"]["printer_definition"]
+    defaults = dict(config["DEFAULT_SETTINGS"])
+    telegram_token = config["TELEGRAM"]["bot_token"]
+
+    allowed = config["TELEGRAM"].get("allowed_users", "").strip()
+    admin_users = _parse_admin_users(allowed) if allowed else set()
+    chat_users = _load_chat_users(USERS_FILE)
+
+    notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
+    notify_chat_id = int(notify) if notify else None
+
+    registry = load_registry(def_dir, printer_def)
+    if config.has_section("BOUNDS_OVERRIDES"):
+        _apply_bounds_overrides(registry, config["BOUNDS_OVERRIDES"])
+
+    return Config(
+        archive_dir=archive_dir,
+        cura_bin=cura_bin,
+        def_dir=def_dir,
+        printer_def=printer_def,
+        defaults=defaults,
+        telegram_token=telegram_token,
+        admin_users=admin_users,
+        chat_users=chat_users,
+        notify_chat_id=notify_chat_id,
+        registry=registry,
+    )
 
 
 def save_users(config: Config) -> None:
@@ -51,13 +95,10 @@ def save_users(config: Config) -> None:
 
 def is_allowed(config: Config, user_id: int, chat_id: int) -> bool:
     """Check if user is allowed in this chat."""
-    # No restrictions if admin list is empty and no chat users defined
     if not config.admin_users and not config.chat_users:
         return True
-    # Admins have global access
     if user_id in config.admin_users:
         return True
-    # Check chat-specific permission
     return (user_id, chat_id) in config.chat_users
 
 

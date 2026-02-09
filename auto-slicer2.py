@@ -5,7 +5,7 @@ import configparser
 
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
-from auto_slicer.config import Config
+from auto_slicer.config import load_config
 from auto_slicer.handlers import (
     start_command,
     help_command,
@@ -30,7 +30,7 @@ def main():
 
     config_file = configparser.ConfigParser()
     config_file.read(args.config)
-    config = Config(config_file)
+    config = load_config(config_file)
 
     config.archive_dir.mkdir(parents=True, exist_ok=True)
 
