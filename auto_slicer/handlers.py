@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
 from .settings_match import SettingsMatcher
-from .settings_validate import SettingsValidator
+from .settings_validate import validate as validate_setting
 from .presets import PresetManager
 
 
@@ -91,7 +91,6 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     matcher = SettingsMatcher(config.registry)
-    validator = SettingsValidator()
 
     if not context.args:
         await update.message.reply_text(
@@ -158,7 +157,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             continue
 
         defn = config.registry.get(resolved_key)
-        result = validator.validate(defn, raw_value)
+        result = validate_setting(defn, raw_value)
 
         if not result.ok:
             response_lines.append(f"{defn.label}: {result.error}")
@@ -610,8 +609,7 @@ async def _cb_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.answer("Unknown setting.")
         return
 
-    validator = SettingsValidator()
-    result = validator.validate(defn, raw_value)
+    result = validate_setting(defn, raw_value)
     if not result.ok:
         await query.answer(result.error[:200])  # Telegram answer limit
         return
@@ -667,8 +665,7 @@ async def _cb_disambig(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await query.answer("Unknown setting.")
         return
 
-    validator = SettingsValidator()
-    result = validator.validate(defn, raw_value)
+    result = validate_setting(defn, raw_value)
     if not result.ok:
         await query.answer(result.error[:200])
         return

@@ -6,7 +6,7 @@ import pytest
 from auto_slicer.config import Config
 from auto_slicer.settings_registry import SettingsRegistry, SettingDefinition
 from auto_slicer.settings_match import SettingsMatcher
-from auto_slicer.settings_validate import SettingsValidator, ValidationResult
+from auto_slicer.settings_validate import validate, ValidationResult
 from auto_slicer.handlers import _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA
 from auto_slicer.presets import PresetManager, BUILTIN_PRESETS
 
@@ -27,10 +27,6 @@ def registry(config):
 def matcher(registry):
     return SettingsMatcher(registry)
 
-
-@pytest.fixture(scope="module")
-def validator():
-    return SettingsValidator()
 
 
 # --- SettingsRegistry tests ---
@@ -144,102 +140,102 @@ class TestSettingsMatcher:
 # --- SettingsValidator tests ---
 
 class TestSettingsValidator:
-    def test_float_valid(self, registry, validator):
+    def test_float_valid(self, registry):
         defn = registry.get("layer_height")
-        result = validator.validate(defn, "0.2")
+        result = validate(defn, "0.2")
         assert result.ok
         assert result.coerced_value == "0.2"
         assert result.error == ""
 
-    def test_float_invalid_text(self, registry, validator):
+    def test_float_invalid_text(self, registry):
         defn = registry.get("layer_height")
-        result = validator.validate(defn, "abc")
+        result = validate(defn, "abc")
         assert not result.ok
         assert "number" in result.error.lower()
 
-    def test_float_below_hard_minimum(self, registry, validator):
+    def test_float_below_hard_minimum(self, registry):
         defn = registry.get("layer_height")
-        result = validator.validate(defn, "0.0001")
+        result = validate(defn, "0.0001")
         assert not result.ok
         assert "minimum" in result.error.lower()
 
-    def test_float_warning_range(self, registry, validator):
+    def test_float_warning_range(self, registry):
         defn = registry.get("layer_height")
         # 0.02 is below minimum_value_warning of 0.04 but above minimum_value of 0.001
-        result = validator.validate(defn, "0.02")
+        result = validate(defn, "0.02")
         assert result.ok
         assert result.warning != ""
         assert "recommended" in result.warning.lower()
 
-    def test_int_valid(self, registry, validator):
+    def test_int_valid(self, registry):
         defn = registry.get("wall_line_count")
-        result = validator.validate(defn, "3")
+        result = validate(defn, "3")
         assert result.ok
         assert result.coerced_value == "3"
 
-    def test_int_invalid_float(self, registry, validator):
+    def test_int_invalid_float(self, registry):
         defn = registry.get("wall_line_count")
-        result = validator.validate(defn, "2.5")
+        result = validate(defn, "2.5")
         assert not result.ok
         assert "integer" in result.error.lower()
 
-    def test_int_accepts_whole_float(self, registry, validator):
+    def test_int_accepts_whole_float(self, registry):
         defn = registry.get("wall_line_count")
-        result = validator.validate(defn, "3.0")
+        result = validate(defn, "3.0")
         assert result.ok
         assert result.coerced_value == "3"
 
-    def test_bool_true_variants(self, registry, validator):
+    def test_bool_true_variants(self, registry):
         defn = registry.get("support_enable")
         for val in ["true", "True", "yes", "1", "on"]:
-            result = validator.validate(defn, val)
+            result = validate(defn, val)
             assert result.ok, f"Failed for {val}"
             assert result.coerced_value == "true"
 
-    def test_bool_false_variants(self, registry, validator):
+    def test_bool_false_variants(self, registry):
         defn = registry.get("support_enable")
         for val in ["false", "False", "no", "0", "off"]:
-            result = validator.validate(defn, val)
+            result = validate(defn, val)
             assert result.ok, f"Failed for {val}"
             assert result.coerced_value == "false"
 
-    def test_bool_invalid(self, registry, validator):
+    def test_bool_invalid(self, registry):
         defn = registry.get("support_enable")
-        result = validator.validate(defn, "maybe")
+        result = validate(defn, "maybe")
         assert not result.ok
         assert "true/false" in result.error.lower()
 
-    def test_enum_valid_key(self, registry, validator):
+    def test_enum_valid_key(self, registry):
         defn = registry.get("adhesion_type")
-        result = validator.validate(defn, "skirt")
+        result = validate(defn, "skirt")
         assert result.ok
         assert result.coerced_value == "skirt"
 
-    def test_enum_case_insensitive(self, registry, validator):
+    def test_enum_case_insensitive(self, registry):
         defn = registry.get("adhesion_type")
-        result = validator.validate(defn, "Skirt")
+        result = validate(defn, "Skirt")
         assert result.ok
         assert result.coerced_value == "skirt"
 
-    def test_enum_by_label(self, registry, validator):
+    def test_enum_by_label(self, registry):
         defn = registry.get("adhesion_type")
         # Option labels are "Skirt", "Brim", etc.
-        result = validator.validate(defn, "Brim")
+        result = validate(defn, "Brim")
         assert result.ok
         assert result.coerced_value == "brim"
 
-    def test_enum_invalid(self, registry, validator):
+    def test_enum_invalid(self, registry):
         defn = registry.get("adhesion_type")
-        result = validator.validate(defn, "glue")
+        result = validate(defn, "glue")
         assert not result.ok
         assert "invalid option" in result.error.lower()
 
-    def test_str_accepts_anything(self, validator):
+    def test_str_accepts_anything(self):
         defn = SettingDefinition(
             key="test_str", label="Test", description="",
             setting_type="str", default_value=""
         )
-        result = validator.validate(defn, "anything goes here")
+        result = validate(defn, "anything goes here")
         assert result.ok
 
 
@@ -320,23 +316,23 @@ class TestPresets:
 # --- Bounds override tests ---
 
 class TestBoundsOverrides:
-    def test_retraction_amount_hard_max(self, config, validator):
+    def test_retraction_amount_hard_max(self, config):
         """Config sets retraction_amount.maximum_value = 4 for all-metal heat break."""
         defn = config.registry.get("retraction_amount")
         assert defn is not None
         assert defn.maximum_value == 4.0
 
         # 3mm should pass
-        result = validator.validate(defn, "3")
+        result = validate(defn, "3")
         assert result.ok
 
         # 5mm should be rejected
-        result = validator.validate(defn, "5")
+        result = validate(defn, "5")
         assert not result.ok
         assert "maximum" in result.error.lower()
 
         # 4mm should be exactly at the limit
-        result = validator.validate(defn, "4")
+        result = validate(defn, "4")
         assert result.ok
 
 
