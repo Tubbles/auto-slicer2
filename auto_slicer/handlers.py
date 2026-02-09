@@ -503,12 +503,10 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _cb_undo_preset(update, context)
     elif data.startswith("pick:"):
         await _cb_pick(update, context)
-    elif data.startswith("val:"):
-        await _cb_val(update, context)
+    elif data.startswith("val:") or data.startswith("disambig:"):
+        await _cb_set_value(update, context)
     elif data.startswith("rm:"):
         await _cb_rm(update, context)
-    elif data.startswith("disambig:"):
-        await _cb_disambig(update, context)
     else:
         await query.answer("Unknown action.")
 
@@ -590,12 +588,13 @@ async def _cb_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-async def _cb_val(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _cb_set_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle both val: and disambig: callbacks (identical logic)."""
     query = update.callback_query
     config: Config = context.bot_data["config"]
     user_id = update.effective_user.id
 
-    # Format: val:<key>:<value>
+    # Format: <prefix>:<key>:<value>
     parts = query.data.split(":", 2)
     if len(parts) < 3:
         await query.answer("Invalid callback data.")
@@ -646,36 +645,3 @@ async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(text, reply_markup=keyboard)
 
 
-async def _cb_disambig(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-
-    # Format: disambig:<key>:<value>
-    parts = query.data.split(":", 2)
-    if len(parts) < 3:
-        await query.answer("Invalid callback data.")
-        return
-    key, raw_value = parts[1], parts[2]
-
-    defn = config.registry.get(key)
-    if not defn:
-        await query.answer("Unknown setting.")
-        return
-
-    result = validate_setting(defn, raw_value)
-    if not result.ok:
-        await query.answer(result.error[:200])
-        return
-
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id][key] = result.coerced_value
-
-    unit = f" {defn.unit}" if defn.unit else ""
-    text = f"{defn.label}: {result.coerced_value}{unit}"
-    if result.warning:
-        text += f"\nWarning: {result.warning}"
-
-    await query.answer()
-    await query.edit_message_text(text)
