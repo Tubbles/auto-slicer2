@@ -2,10 +2,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
-from telegram import WebAppInfo
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file

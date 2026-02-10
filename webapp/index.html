@@ -25,7 +25,6 @@
     -webkit-text-size-adjust: 100%;
   }
 
-  /* Search */
   .search-bar {
     position: sticky; top: 0; z-index: 10;
     background: var(--bg);
@@ -42,7 +41,6 @@
   }
   .search-bar input:focus { border-color: var(--link); }
 
-  /* Filter tabs */
   .tabs {
     display: flex; gap: 8px;
     padding: 8px 0;
@@ -62,7 +60,6 @@
     border-color: var(--btn);
   }
 
-  /* Presets */
   .presets {
     display: flex; gap: 6px; flex-wrap: wrap;
     padding: 4px 0 8px;
@@ -78,7 +75,6 @@
   }
   .preset-btn:active { opacity: 0.7; }
 
-  /* Category */
   .category-header {
     font-size: 13px;
     font-weight: 600;
@@ -89,7 +85,6 @@
     border-bottom: 1px solid var(--secondary-bg);
   }
 
-  /* Setting card */
   .setting {
     display: flex;
     align-items: center;
@@ -124,7 +119,6 @@
   .setting-desc.show { display: block; }
   .setting-control { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 
-  /* Toggle (bool) */
   .toggle {
     position: relative;
     width: 44px; height: 24px;
@@ -148,7 +142,6 @@
   }
   .toggle input:checked ~ .toggle-knob { left: 22px; }
 
-  /* Select (enum) */
   .setting-control select {
     padding: 4px 8px;
     border: 1px solid var(--hint);
@@ -159,7 +152,6 @@
     max-width: 140px;
   }
 
-  /* Number stepper */
   .stepper {
     display: flex; align-items: center; gap: 2px;
   }
@@ -184,7 +176,6 @@
     font-size: 13px;
   }
 
-  /* Text input (str) */
   .setting-control input[type="text"] {
     padding: 4px 8px;
     border: 1px solid var(--hint);
@@ -195,7 +186,6 @@
     width: 120px;
   }
 
-  /* Reset button */
   .reset-btn {
     width: 20px; height: 20px;
     border: none; background: transparent;
@@ -207,7 +197,6 @@
   }
   .reset-btn:hover { color: var(--text); }
 
-  /* Status bar */
   .status {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -220,7 +209,6 @@
   }
   .status.error { color: #e53935; }
 
-  /* Loading */
   .loading {
     text-align: center;
     padding: 40px 0;
@@ -230,21 +218,7 @@
 </head>
 <body>
 
-<pre id="debug" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#000;color:#0f0;font-size:12px;padding:8px;margin:0;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:monospace;"></pre>
-<script>
-// Inline debug bootstrap — runs before anything else
-function dbg(msg) {
-  var el = document.getElementById('debug');
-  if (el) el.textContent += msg + '\n';
-  console.log('[dbg] ' + msg);
-}
-window.onerror = function(msg, src, line) { dbg('JS ERROR: ' + msg + ' at ' + src + ':' + line); };
-dbg('page loaded at ' + new Date().toISOString());
-dbg('userAgent: ' + navigator.userAgent);
-dbg('location: ' + location.href);
-</script>
-
-<div class="search-bar" style="margin-top:42vh;">
+<div class="search-bar">
   <input type="text" id="search" placeholder="Search settings..." autocomplete="off">
 </div>
 
@@ -262,35 +236,29 @@ dbg('location: ' + location.href);
 <div class="status" id="status"></div>
 
 <script>
-dbg('main script started');
-dbg('Telegram obj: ' + typeof window.Telegram);
-dbg('WebApp obj: ' + (window.Telegram ? typeof window.Telegram.WebApp : 'n/a'));
-
 const WebApp = window.Telegram && window.Telegram.WebApp;
 if (WebApp) {
-  try { WebApp.ready(); dbg('ready() ok'); } catch(e) { dbg('ready() err: ' + e); }
-  try { WebApp.expand(); dbg('expand() ok'); } catch(e) { dbg('expand() err: ' + e); }
-  dbg('initData length: ' + (WebApp.initData || '').length);
-} else {
-  dbg('No WebApp SDK');
+  try { WebApp.ready(); } catch(e) {}
+  try { WebApp.expand(); } catch(e) {}
 }
 
 const params = new URLSearchParams(location.search);
 const API_BASE = params.get('api') || '';
-dbg('API_BASE: ' + API_BASE);
 
-let registry = null;    // full registry response
-let overrides = {};      // user's current overrides (mutable)
-let original = {};       // snapshot at load time
-let pendingChanges = {}; // key -> new value (or null for removal)
+let registry = null;
+let overrides = {};
+let original = {};
+let pendingChanges = {};
 
-// --- Auth header ---
+// --- Auth ---
+
 function authHeaders() {
   const initData = (WebApp && WebApp.initData) || '';
   return { 'Authorization': 'tma ' + initData };
 }
 
-// --- API calls ---
+// --- API ---
+
 async function fetchRegistry() {
   const r = await fetch(API_BASE + '/api/registry', { headers: authHeaders() });
   return r.json();
@@ -311,83 +279,95 @@ async function postSettings(payload) {
   return r.json();
 }
 
-// --- Rendering ---
+// --- Controls ---
+
 function buildControl(s, value) {
   const wrap = document.createElement('div');
   wrap.className = 'setting-control';
 
   if (s.type === 'bool') {
-    const label = document.createElement('label');
-    label.className = 'toggle';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = value === 'true' || value === true;
-    input.addEventListener('change', () => onChange(s.key, input.checked ? 'true' : 'false'));
-    const track = document.createElement('span');
-    track.className = 'toggle-track';
-    const knob = document.createElement('span');
-    knob.className = 'toggle-knob';
-    label.append(input, track, knob);
-    wrap.appendChild(label);
-
+    wrap.appendChild(buildToggle(s, value));
   } else if (s.type === 'enum' && s.options) {
-    const sel = document.createElement('select');
-    for (const [k, lbl] of Object.entries(s.options)) {
-      const opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = lbl;
-      if (String(value) === k) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.addEventListener('change', () => onChange(s.key, sel.value));
-    wrap.appendChild(sel);
-
+    wrap.appendChild(buildSelect(s, value));
   } else if (s.type === 'int' || s.type === 'float') {
-    const div = document.createElement('div');
-    div.className = 'stepper';
-    const minus = document.createElement('button');
-    minus.textContent = '-';
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = value;
-    if (s.type === 'int') input.step = '1';
-    else input.step = s.minimum_value != null && s.minimum_value > 0 && s.minimum_value < 1 ? '0.01' : '0.1';
-    const plus = document.createElement('button');
-    plus.textContent = '+';
-
-    const step = parseFloat(input.step);
-    minus.addEventListener('click', () => {
-      const v = parseFloat(input.value) - step;
-      const rounded = s.type === 'int' ? Math.round(v) : parseFloat(v.toFixed(4));
-      input.value = rounded;
-      onChange(s.key, String(rounded));
-      haptic();
-    });
-    plus.addEventListener('click', () => {
-      const v = parseFloat(input.value) + step;
-      const rounded = s.type === 'int' ? Math.round(v) : parseFloat(v.toFixed(4));
-      input.value = rounded;
-      onChange(s.key, String(rounded));
-      haptic();
-    });
-    input.addEventListener('change', () => onChange(s.key, input.value));
-
-    div.append(minus, input, plus);
-    wrap.appendChild(div);
-
+    wrap.appendChild(buildStepper(s, value));
   } else {
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = value || '';
-    input.addEventListener('change', () => onChange(s.key, input.value));
-    wrap.appendChild(input);
+    wrap.appendChild(buildTextInput(s, value));
   }
 
   return wrap;
 }
 
+function buildToggle(s, value) {
+  const label = document.createElement('label');
+  label.className = 'toggle';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = value === 'true' || value === true;
+  input.addEventListener('change', () => onChange(s.key, input.checked ? 'true' : 'false'));
+  const track = document.createElement('span');
+  track.className = 'toggle-track';
+  const knob = document.createElement('span');
+  knob.className = 'toggle-knob';
+  label.append(input, track, knob);
+  return label;
+}
+
+function buildSelect(s, value) {
+  const sel = document.createElement('select');
+  for (const [k, lbl] of Object.entries(s.options)) {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = lbl;
+    if (String(value) === k) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => onChange(s.key, sel.value));
+  return sel;
+}
+
+function buildStepper(s, value) {
+  const div = document.createElement('div');
+  div.className = 'stepper';
+
+  const minus = document.createElement('button');
+  minus.textContent = '-';
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.value = value;
+  if (s.type === 'int') input.step = '1';
+  else input.step = s.minimum_value != null && s.minimum_value > 0 && s.minimum_value < 1 ? '0.01' : '0.1';
+  const plus = document.createElement('button');
+  plus.textContent = '+';
+
+  const step = parseFloat(input.step);
+  minus.addEventListener('click', () => stepValue(s, input, -step));
+  plus.addEventListener('click', () => stepValue(s, input, step));
+  input.addEventListener('change', () => onChange(s.key, input.value));
+
+  div.append(minus, input, plus);
+  return div;
+}
+
+function stepValue(s, input, delta) {
+  const v = parseFloat(input.value) + delta;
+  const rounded = s.type === 'int' ? Math.round(v) : parseFloat(v.toFixed(4));
+  input.value = rounded;
+  onChange(s.key, String(rounded));
+  haptic();
+}
+
+function buildTextInput(s, value) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value || '';
+  input.addEventListener('change', () => onChange(s.key, input.value));
+  return input;
+}
+
+// --- Rendering ---
+
 function defaultValue(s) {
-  // User override > config default > definition default
   if (s.key in overrides) return String(overrides[s.key]);
   if (registry.defaults[s.key] != null) return String(registry.defaults[s.key]);
   return String(s.default_value);
@@ -397,66 +377,14 @@ function render() {
   const container = document.getElementById('settings-container');
   container.innerHTML = '';
 
-  const categories = registry.categories;
-  const catNames = Object.keys(categories);
-
-  for (const catName of catNames) {
+  for (const [catName, settings] of Object.entries(registry.categories)) {
     const header = document.createElement('div');
     header.className = 'category-header';
     header.textContent = catName;
     container.appendChild(header);
 
-    for (const s of categories[catName]) {
-      const el = document.createElement('div');
-      el.className = 'setting';
-      el.dataset.key = s.key;
-      el.dataset.label = s.label.toLowerCase();
-      el.dataset.desc = (s.description || '').toLowerCase();
-      el.dataset.category = catName;
-
-      const isModified = s.key in pendingChanges || s.key in overrides;
-      if (isModified) el.classList.add('modified');
-
-      const info = document.createElement('div');
-      info.className = 'setting-info';
-      info.addEventListener('click', () => {
-        const desc = info.querySelector('.setting-desc');
-        if (desc) desc.classList.toggle('show');
-      });
-
-      const label = document.createElement('div');
-      label.className = 'setting-label';
-      label.textContent = s.label;
-
-      const meta = document.createElement('div');
-      meta.className = 'setting-meta';
-      const unit = s.unit ? ` ${s.unit}` : '';
-      meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}`;
-
-      info.append(label, meta);
-
-      if (s.description) {
-        const desc = document.createElement('div');
-        desc.className = 'setting-desc';
-        desc.textContent = s.description;
-        info.appendChild(desc);
-      }
-
-      const val = s.key in pendingChanges ? pendingChanges[s.key] : defaultValue(s);
-      const control = buildControl(s, val);
-
-      // Reset button (only if modified)
-      if (isModified) {
-        const resetBtn = document.createElement('button');
-        resetBtn.className = 'reset-btn';
-        resetBtn.textContent = '\u00d7';
-        resetBtn.title = 'Reset to default';
-        resetBtn.addEventListener('click', () => onReset(s.key));
-        control.appendChild(resetBtn);
-      }
-
-      el.append(info, control);
-      container.appendChild(el);
+    for (const s of settings) {
+      container.appendChild(buildSettingRow(s));
     }
   }
 
@@ -464,22 +392,72 @@ function render() {
   updateMainButton();
 }
 
+function buildSettingRow(s) {
+  const el = document.createElement('div');
+  el.className = 'setting';
+  el.dataset.key = s.key;
+  el.dataset.label = s.label.toLowerCase();
+  el.dataset.desc = (s.description || '').toLowerCase();
+  el.dataset.category = s.category || 'Other';
+
+  const isModified = s.key in pendingChanges || s.key in overrides;
+  if (isModified) el.classList.add('modified');
+
+  const info = document.createElement('div');
+  info.className = 'setting-info';
+  info.addEventListener('click', () => {
+    const desc = info.querySelector('.setting-desc');
+    if (desc) desc.classList.toggle('show');
+  });
+
+  const label = document.createElement('div');
+  label.className = 'setting-label';
+  label.textContent = s.label;
+
+  const meta = document.createElement('div');
+  meta.className = 'setting-meta';
+  const unit = s.unit ? ` ${s.unit}` : '';
+  meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}`;
+
+  info.append(label, meta);
+
+  if (s.description) {
+    const desc = document.createElement('div');
+    desc.className = 'setting-desc';
+    desc.textContent = s.description;
+    info.appendChild(desc);
+  }
+
+  const val = s.key in pendingChanges ? pendingChanges[s.key] : defaultValue(s);
+  const control = buildControl(s, val);
+
+  if (isModified) {
+    control.appendChild(buildResetBtn(s.key));
+  }
+
+  el.append(info, control);
+  return el;
+}
+
+function buildResetBtn(key) {
+  const btn = document.createElement('button');
+  btn.className = 'reset-btn';
+  btn.textContent = '\u00d7';
+  btn.title = 'Reset to default';
+  btn.addEventListener('click', () => onReset(key));
+  return btn;
+}
+
 // --- Events ---
+
 function onChange(key, value) {
   pendingChanges[key] = value;
-  // Update visual state without full re-render
   const el = document.querySelector(`.setting[data-key="${key}"]`);
   if (el && !el.classList.contains('modified')) {
     el.classList.add('modified');
-    // Add reset button
     const control = el.querySelector('.setting-control');
     if (control && !control.querySelector('.reset-btn')) {
-      const resetBtn = document.createElement('button');
-      resetBtn.className = 'reset-btn';
-      resetBtn.textContent = '\u00d7';
-      resetBtn.title = 'Reset to default';
-      resetBtn.addEventListener('click', () => onReset(key));
-      control.appendChild(resetBtn);
+      control.appendChild(buildResetBtn(key));
     }
   }
   updateMainButton();
@@ -507,6 +485,7 @@ function updateMainButton() {
 }
 
 // --- Search & Filter ---
+
 let currentFilter = 'all';
 
 document.getElementById('search').addEventListener('input', applyFilter);
@@ -548,6 +527,7 @@ function applyFilter() {
 }
 
 // --- Presets ---
+
 function renderPresets() {
   const container = document.getElementById('presets');
   container.innerHTML = '';
@@ -571,19 +551,16 @@ function renderPresets() {
 }
 
 // --- Apply ---
+
 if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
   WebApp.MainButton.showProgress();
   setStatus('Applying...');
 
-  // Split into overrides to set and keys to remove
   const toSet = {};
   const toRemove = [];
   for (const [key, value] of Object.entries(pendingChanges)) {
-    if (value === null) {
-      toRemove.push(key);
-    } else {
-      toSet[key] = value;
-    }
+    if (value === null) toRemove.push(key);
+    else toSet[key] = value;
   }
 
   try {
@@ -597,20 +574,14 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
     if (errorKeys.length > 0) {
       const msgs = errorKeys.map(k => `${k}: ${result.errors[k]}`);
       setStatus('Errors: ' + msgs.join('; '), true);
-      // Remove successful ones from pending
       for (const k of appliedKeys) {
         overrides[k] = result.applied[k];
         delete pendingChanges[k];
       }
       render();
     } else {
-      // All good — update overrides
-      for (const k of appliedKeys) {
-        overrides[k] = result.applied[k];
-      }
-      for (const k of toRemove) {
-        delete overrides[k];
-      }
+      for (const k of appliedKeys) overrides[k] = result.applied[k];
+      for (const k of toRemove) delete overrides[k];
       pendingChanges = {};
       render();
 
@@ -641,22 +612,15 @@ function setStatus(msg, isError) {
 }
 
 // --- Init ---
+
 async function init() {
-  dbg('init() called');
   if (!API_BASE) {
     document.getElementById('loading').textContent = 'Error: no API URL provided.';
-    dbg('No API_BASE, aborting');
     return;
   }
 
   try {
-    dbg('Fetching registry...');
-    const regPromise = fetchRegistry();
-    dbg('Fetching settings...');
-    const settingsPromise = fetchSettings();
-    const [reg, settings] = await Promise.all([regPromise, settingsPromise]);
-    dbg('Registry: ' + (reg.settings || []).length + ' settings');
-    dbg('Overrides: ' + JSON.stringify(settings));
+    const [reg, settings] = await Promise.all([fetchRegistry(), fetchSettings()]);
     registry = reg;
     overrides = settings;
     original = { ...settings };
@@ -664,9 +628,7 @@ async function init() {
     document.getElementById('loading').remove();
     renderPresets();
     render();
-    dbg('Render complete');
   } catch (e) {
-    dbg('init error: ' + e.message + ' ' + e.stack);
     document.getElementById('loading').textContent = 'Failed to load: ' + e.message;
   }
 }
