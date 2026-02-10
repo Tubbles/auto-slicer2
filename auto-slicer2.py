@@ -9,6 +9,7 @@ from auto_slicer.config import load_config
 from auto_slicer.handlers import (
     start_command,
     help_command,
+    webapp_command,
     settings_command,
     mysettings_command,
     clear_command,
@@ -18,6 +19,7 @@ from auto_slicer.handlers import (
     removeuser_command,
     listusers_command,
     post_init,
+    post_shutdown,
     handle_document,
     callback_router,
 )
@@ -34,11 +36,18 @@ def main():
 
     config.archive_dir.mkdir(parents=True, exist_ok=True)
 
-    app = Application.builder().token(config.telegram_token).post_init(post_init).build()
+    app = (
+        Application.builder()
+        .token(config.telegram_token)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
     app.bot_data["config"] = config
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("webapp", webapp_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("mysettings", mysettings_command))
     app.add_handler(CommandHandler("clear", clear_command))

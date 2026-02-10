@@ -2,9 +2,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
+from telegram import WebAppInfo
 
 from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
 from .slicer import slice_file
@@ -82,6 +83,7 @@ Settings:
 /preset - Choose a preset via buttons
 /preset <name> - Apply a preset directly
 /clear - Reset to defaults
+/webapp - Open settings panel (Mini App)
 
 Most responses include interactive buttons for quick actions.
 
@@ -107,6 +109,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
         return
     await update.message.reply_text(HELP_TEXT)
+
+
+async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /webapp command — send a keyboard button that opens the Mini App."""
+    config: Config = context.bot_data["config"]
+    if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
+        return
+
+    if not config.webapp_url or not config.api_base_url:
+        await update.message.reply_text("Mini App is not configured.")
+        return
+
+    url = f"{config.webapp_url}?api={config.api_base_url}"
+    keyboard = ReplyKeyboardMarkup(
+        [[KeyboardButton("Open Settings", web_app=WebAppInfo(url=url))]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+    await update.message.reply_text("Tap the button below to open settings:", reply_markup=keyboard)
 
 
 def _parse_settings_args(text: str) -> list[tuple[str, str]]:
@@ -444,7 +465,7 @@ async def listusers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def post_init(app) -> None:
-    """Send startup notification to reload origin chat, or fallback to config."""
+    """Send startup notification and start HTTP API if configured."""
     config: Config = app.bot_data["config"]
     chat_id = None
     if RELOAD_CHAT_FILE.exists():
@@ -457,6 +478,26 @@ async def post_init(app) -> None:
         chat_id = config.notify_chat_id
     if chat_id:
         await app.bot.send_message(chat_id, "Auto-Slicer Bot is online!")
+
+    # Start HTTP API server if configured
+    if config.api_port > 0:
+        from aiohttp import web as aio_web
+        from .web_api import create_web_app
+
+        web_app = create_web_app(config, user_settings)
+        runner = aio_web.AppRunner(web_app)
+        await runner.setup()
+        site = aio_web.TCPSite(runner, "0.0.0.0", config.api_port)
+        await site.start()
+        app.bot_data["_api_runner"] = runner
+        print(f"HTTP API started on port {config.api_port}")
+
+
+async def post_shutdown(app) -> None:
+    """Clean up the HTTP API server."""
+    runner = app.bot_data.get("_api_runner")
+    if runner:
+        await runner.cleanup()
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
