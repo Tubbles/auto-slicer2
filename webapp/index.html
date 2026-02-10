@@ -248,9 +248,11 @@
 <div class="status" id="status"></div>
 
 <script>
-const WebApp = window.Telegram.WebApp;
-WebApp.ready();
-WebApp.expand();
+const WebApp = window.Telegram && window.Telegram.WebApp;
+if (WebApp) {
+  try { WebApp.ready(); } catch(e) {}
+  try { WebApp.expand(); } catch(e) {}
+}
 
 const params = new URLSearchParams(location.search);
 const API_BASE = params.get('api') || '';
@@ -262,7 +264,8 @@ let pendingChanges = {}; // key -> new value (or null for removal)
 
 // --- Auth header ---
 function authHeaders() {
-  return { 'Authorization': 'tma ' + WebApp.initData };
+  const initData = (WebApp && WebApp.initData) || '';
+  return { 'Authorization': 'tma ' + initData };
 }
 
 // --- API calls ---
@@ -467,12 +470,11 @@ function onReset(key) {
 }
 
 function haptic() {
-  if (WebApp.HapticFeedback) {
-    WebApp.HapticFeedback.impactOccurred('light');
-  }
+  try { WebApp && WebApp.HapticFeedback && WebApp.HapticFeedback.impactOccurred('light'); } catch(e) {}
 }
 
 function updateMainButton() {
+  if (!WebApp || !WebApp.MainButton) return;
   const count = Object.keys(pendingChanges).length;
   if (count > 0) {
     WebApp.MainButton.setText(`Apply ${count} Change${count > 1 ? 's' : ''}`);
@@ -547,7 +549,7 @@ function renderPresets() {
 }
 
 // --- Apply ---
-WebApp.MainButton.onClick(async () => {
+if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
   WebApp.MainButton.showProgress();
   setStatus('Applying...');
 
@@ -597,8 +599,8 @@ WebApp.MainButton.onClick(async () => {
       }
       setStatus(msg);
 
-      if (warningKeys.length === 0) {
-        setTimeout(() => WebApp.close(), 1200);
+      if (warningKeys.length === 0 && WebApp) {
+        setTimeout(() => { try { WebApp.close(); } catch(e) {} }, 1200);
       }
     }
   } catch (e) {
