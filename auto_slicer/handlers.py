@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, Update, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
@@ -82,7 +82,7 @@ Settings:
 /preset - Choose a preset via buttons
 /preset <name> - Apply a preset directly
 /clear - Reset to defaults
-/webapp - Open settings panel (Mini App)
+Use the Settings button (next to text input) to open the Mini App.
 
 Most responses include interactive buttons for quick actions.
 
@@ -109,22 +109,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await update.message.reply_text(HELP_TEXT)
 
-
-async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /webapp command — send a keyboard button that opens the Mini App."""
-    config: Config = context.bot_data["config"]
-    if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
-        return
-
-    if not config.webapp_url or not config.api_base_url:
-        await update.message.reply_text("Mini App is not configured.")
-        return
-
-    url = f"{config.webapp_url}?api={config.api_base_url}"
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url)),
-    ]])
-    await update.message.reply_text("Tap the button below to open settings:", reply_markup=keyboard)
 
 
 def _parse_settings_args(text: str) -> list[tuple[str, str]]:
@@ -478,6 +462,13 @@ async def post_init(app) -> None:
             await app.bot.send_message(chat_id, "Auto-Slicer Bot is online!")
         except Exception as e:
             print(f"Startup notification failed: {e}")
+
+    # Set menu button for Mini App if configured
+    if config.webapp_url and config.api_base_url:
+        url = f"{config.webapp_url}?api={config.api_base_url}"
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Settings", web_app=WebAppInfo(url=url))
+        )
 
     # Start HTTP API server if configured
     if config.api_port > 0:

@@ -9,7 +9,6 @@ from auto_slicer.config import load_config
 from auto_slicer.handlers import (
     start_command,
     help_command,
-    webapp_command,
     settings_command,
     mysettings_command,
     clear_command,
@@ -47,7 +46,6 @@ def main():
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("webapp", webapp_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("mysettings", mysettings_command))
     app.add_handler(CommandHandler("clear", clear_command))
