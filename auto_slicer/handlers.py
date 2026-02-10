@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 from telegram import WebAppInfo
@@ -122,11 +122,9 @@ async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     url = f"{config.webapp_url}?api={config.api_base_url}"
-    keyboard = ReplyKeyboardMarkup(
-        [[KeyboardButton("Open Settings", web_app=WebAppInfo(url=url))]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url)),
+    ]])
     await update.message.reply_text("Tap the button below to open settings:", reply_markup=keyboard)
 
 
