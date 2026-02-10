@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Auto-Slicer Settings</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #fff);
+    --text: var(--tg-theme-text-color, #000);
+    --hint: var(--tg-theme-hint-color, #999);
+    --link: var(--tg-theme-link-color, #2678b6);
+    --btn: var(--tg-theme-button-color, #2678b6);
+    --btn-text: var(--tg-theme-button-text-color, #fff);
+    --secondary-bg: var(--tg-theme-secondary-bg-color, #f0f0f0);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 0 12px 80px;
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Search */
+  .search-bar {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg);
+    padding: 8px 0;
+  }
+  .search-bar input {
+    width: 100%; padding: 8px 12px;
+    border: 1px solid var(--hint);
+    border-radius: 8px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+  }
+  .search-bar input:focus { border-color: var(--link); }
+
+  /* Filter tabs */
+  .tabs {
+    display: flex; gap: 8px;
+    padding: 8px 0;
+  }
+  .tab {
+    padding: 4px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--hint);
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab.active {
+    background: var(--btn);
+    color: var(--btn-text);
+    border-color: var(--btn);
+  }
+
+  /* Presets */
+  .presets {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding: 4px 0 8px;
+  }
+  .preset-btn {
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--link);
+    background: transparent;
+    color: var(--link);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .preset-btn:active { opacity: 0.7; }
+
+  /* Category */
+  .category-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--hint);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 0 4px;
+    border-bottom: 1px solid var(--secondary-bg);
+  }
+
+  /* Setting card */
+  .setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--secondary-bg);
+    gap: 8px;
+  }
+  .setting.hidden { display: none; }
+  .setting.modified { background: color-mix(in srgb, var(--link) 8%, transparent); margin: 0 -12px; padding: 10px 12px; }
+  .setting-info { flex: 1; min-width: 0; }
+  .setting-label {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .setting-meta {
+    font-size: 11px;
+    color: var(--hint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .setting-desc {
+    font-size: 12px;
+    color: var(--hint);
+    margin-top: 2px;
+    display: none;
+  }
+  .setting-desc.show { display: block; }
+  .setting-control { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
+
+  /* Toggle (bool) */
+  .toggle {
+    position: relative;
+    width: 44px; height: 24px;
+    cursor: pointer;
+  }
+  .toggle input { display: none; }
+  .toggle-track {
+    position: absolute; inset: 0;
+    background: var(--hint);
+    border-radius: 12px;
+    transition: background 0.2s;
+  }
+  .toggle input:checked + .toggle-track { background: var(--btn); }
+  .toggle-knob {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 20px; height: 20px;
+    background: #fff;
+    border-radius: 50%;
+    transition: left 0.2s;
+  }
+  .toggle input:checked ~ .toggle-knob { left: 22px; }
+
+  /* Select (enum) */
+  .setting-control select {
+    padding: 4px 8px;
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 13px;
+    max-width: 140px;
+  }
+
+  /* Number stepper */
+  .stepper {
+    display: flex; align-items: center; gap: 2px;
+  }
+  .stepper button {
+    width: 28px; height: 28px;
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stepper button:active { opacity: 0.7; }
+  .stepper input {
+    width: 60px; height: 28px;
+    text-align: center;
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  /* Text input (str) */
+  .setting-control input[type="text"] {
+    padding: 4px 8px;
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 13px;
+    width: 120px;
+  }
+
+  /* Reset button */
+  .reset-btn {
+    width: 20px; height: 20px;
+    border: none; background: transparent;
+    color: var(--hint);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .reset-btn:hover { color: var(--text); }
+
+  /* Status bar */
+  .status {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--secondary-bg);
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--hint);
+    text-align: center;
+    z-index: 20;
+  }
+  .status.error { color: #e53935; }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 40px 0;
+    color: var(--hint);
+  }
+</style>
+</head>
+<body>
+
+<div class="search-bar">
+  <input type="text" id="search" placeholder="Search settings..." autocomplete="off">
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-filter="all">All</button>
+  <button class="tab" data-filter="modified">Modified</button>
+</div>
+
+<div class="presets" id="presets"></div>
+
+<div id="settings-container">
+  <div class="loading" id="loading">Loading settings...</div>
+</div>
+
+<div class="status" id="status"></div>
+
+<script>
+const WebApp = window.Telegram.WebApp;
+WebApp.ready();
+WebApp.expand();
+
+const params = new URLSearchParams(location.search);
+const API_BASE = params.get('api') || '';
+
+let registry = null;    // full registry response
+let overrides = {};      // user's current overrides (mutable)
+let original = {};       // snapshot at load time
+let pendingChanges = {}; // key -> new value (or null for removal)
+
+// --- Auth header ---
+function authHeaders() {
+  return { 'Authorization': 'tma ' + WebApp.initData };
+}
+
+// --- API calls ---
+async function fetchRegistry() {
+  const r = await fetch(API_BASE + '/api/registry', { headers: authHeaders() });
+  return r.json();
+}
+
+async function fetchSettings() {
+  const r = await fetch(API_BASE + '/api/settings', { headers: authHeaders() });
+  const data = await r.json();
+  return data.overrides || {};
+}
+
+async function postSettings(payload) {
+  const r = await fetch(API_BASE + '/api/settings', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return r.json();
+}
+
+// --- Rendering ---
+function buildControl(s, value) {
+  const wrap = document.createElement('div');
+  wrap.className = 'setting-control';
+
+  if (s.type === 'bool') {
+    const label = document.createElement('label');
+    label.className = 'toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = value === 'true' || value === true;
+    input.addEventListener('change', () => onChange(s.key, input.checked ? 'true' : 'false'));
+    const track = document.createElement('span');
+    track.className = 'toggle-track';
+    const knob = document.createElement('span');
+    knob.className = 'toggle-knob';
+    label.append(input, track, knob);
+    wrap.appendChild(label);
+
+  } else if (s.type === 'enum' && s.options) {
+    const sel = document.createElement('select');
+    for (const [k, lbl] of Object.entries(s.options)) {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = lbl;
+      if (String(value) === k) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', () => onChange(s.key, sel.value));
+    wrap.appendChild(sel);
+
+  } else if (s.type === 'int' || s.type === 'float') {
+    const div = document.createElement('div');
+    div.className = 'stepper';
+    const minus = document.createElement('button');
+    minus.textContent = '-';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = value;
+    if (s.type === 'int') input.step = '1';
+    else input.step = s.minimum_value != null && s.minimum_value > 0 && s.minimum_value < 1 ? '0.01' : '0.1';
+    const plus = document.createElement('button');
+    plus.textContent = '+';
+
+    const step = parseFloat(input.step);
+    minus.addEventListener('click', () => {
+      const v = parseFloat(input.value) - step;
+      const rounded = s.type === 'int' ? Math.round(v) : parseFloat(v.toFixed(4));
+      input.value = rounded;
+      onChange(s.key, String(rounded));
+      haptic();
+    });
+    plus.addEventListener('click', () => {
+      const v = parseFloat(input.value) + step;
+      const rounded = s.type === 'int' ? Math.round(v) : parseFloat(v.toFixed(4));
+      input.value = rounded;
+      onChange(s.key, String(rounded));
+      haptic();
+    });
+    input.addEventListener('change', () => onChange(s.key, input.value));
+
+    div.append(minus, input, plus);
+    wrap.appendChild(div);
+
+  } else {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value || '';
+    input.addEventListener('change', () => onChange(s.key, input.value));
+    wrap.appendChild(input);
+  }
+
+  return wrap;
+}
+
+function defaultValue(s) {
+  // User override > config default > definition default
+  if (s.key in overrides) return String(overrides[s.key]);
+  if (registry.defaults[s.key] != null) return String(registry.defaults[s.key]);
+  return String(s.default_value);
+}
+
+function render() {
+  const container = document.getElementById('settings-container');
+  container.innerHTML = '';
+
+  const categories = registry.categories;
+  const catNames = Object.keys(categories);
+
+  for (const catName of catNames) {
+    const header = document.createElement('div');
+    header.className = 'category-header';
+    header.textContent = catName;
+    container.appendChild(header);
+
+    for (const s of categories[catName]) {
+      const el = document.createElement('div');
+      el.className = 'setting';
+      el.dataset.key = s.key;
+      el.dataset.label = s.label.toLowerCase();
+      el.dataset.desc = (s.description || '').toLowerCase();
+      el.dataset.category = catName;
+
+      const isModified = s.key in pendingChanges || s.key in overrides;
+      if (isModified) el.classList.add('modified');
+
+      const info = document.createElement('div');
+      info.className = 'setting-info';
+      info.addEventListener('click', () => {
+        const desc = info.querySelector('.setting-desc');
+        if (desc) desc.classList.toggle('show');
+      });
+
+      const label = document.createElement('div');
+      label.className = 'setting-label';
+      label.textContent = s.label;
+
+      const meta = document.createElement('div');
+      meta.className = 'setting-meta';
+      const unit = s.unit ? ` ${s.unit}` : '';
+      meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}`;
+
+      info.append(label, meta);
+
+      if (s.description) {
+        const desc = document.createElement('div');
+        desc.className = 'setting-desc';
+        desc.textContent = s.description;
+        info.appendChild(desc);
+      }
+
+      const val = s.key in pendingChanges ? pendingChanges[s.key] : defaultValue(s);
+      const control = buildControl(s, val);
+
+      // Reset button (only if modified)
+      if (isModified) {
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'reset-btn';
+        resetBtn.textContent = '\u00d7';
+        resetBtn.title = 'Reset to default';
+        resetBtn.addEventListener('click', () => onReset(s.key));
+        control.appendChild(resetBtn);
+      }
+
+      el.append(info, control);
+      container.appendChild(el);
+    }
+  }
+
+  applyFilter();
+  updateMainButton();
+}
+
+// --- Events ---
+function onChange(key, value) {
+  pendingChanges[key] = value;
+  // Update visual state without full re-render
+  const el = document.querySelector(`.setting[data-key="${key}"]`);
+  if (el && !el.classList.contains('modified')) {
+    el.classList.add('modified');
+    // Add reset button
+    const control = el.querySelector('.setting-control');
+    if (control && !control.querySelector('.reset-btn')) {
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'reset-btn';
+      resetBtn.textContent = '\u00d7';
+      resetBtn.title = 'Reset to default';
+      resetBtn.addEventListener('click', () => onReset(key));
+      control.appendChild(resetBtn);
+    }
+  }
+  updateMainButton();
+}
+
+function onReset(key) {
+  delete pendingChanges[key];
+  render();
+  haptic();
+}
+
+function haptic() {
+  if (WebApp.HapticFeedback) {
+    WebApp.HapticFeedback.impactOccurred('light');
+  }
+}
+
+function updateMainButton() {
+  const count = Object.keys(pendingChanges).length;
+  if (count > 0) {
+    WebApp.MainButton.setText(`Apply ${count} Change${count > 1 ? 's' : ''}`);
+    WebApp.MainButton.show();
+  } else {
+    WebApp.MainButton.hide();
+  }
+}
+
+// --- Search & Filter ---
+let currentFilter = 'all';
+
+document.getElementById('search').addEventListener('input', applyFilter);
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentFilter = tab.dataset.filter;
+    applyFilter();
+  });
+});
+
+function applyFilter() {
+  const query = document.getElementById('search').value.toLowerCase().trim();
+  const settings = document.querySelectorAll('.setting');
+  const headers = document.querySelectorAll('.category-header');
+  const visibleCategories = new Set();
+
+  settings.forEach(el => {
+    const key = el.dataset.key;
+    const matchesSearch = !query ||
+      key.includes(query) ||
+      el.dataset.label.includes(query) ||
+      el.dataset.desc.includes(query);
+    const matchesFilter = currentFilter === 'all' ||
+      (currentFilter === 'modified' && (key in pendingChanges || key in overrides));
+
+    if (matchesSearch && matchesFilter) {
+      el.classList.remove('hidden');
+      visibleCategories.add(el.dataset.category);
+    } else {
+      el.classList.add('hidden');
+    }
+  });
+
+  headers.forEach(h => {
+    h.style.display = visibleCategories.has(h.textContent) ? '' : 'none';
+  });
+}
+
+// --- Presets ---
+function renderPresets() {
+  const container = document.getElementById('presets');
+  container.innerHTML = '';
+  if (!registry || !registry.presets) return;
+
+  for (const [name, preset] of Object.entries(registry.presets)) {
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn';
+    btn.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    btn.title = preset.description || '';
+    btn.addEventListener('click', () => {
+      for (const [k, v] of Object.entries(preset.settings)) {
+        pendingChanges[k] = String(v);
+      }
+      render();
+      haptic();
+      setStatus(`Preset '${name}' staged`);
+    });
+    container.appendChild(btn);
+  }
+}
+
+// --- Apply ---
+WebApp.MainButton.onClick(async () => {
+  WebApp.MainButton.showProgress();
+  setStatus('Applying...');
+
+  // Split into overrides to set and keys to remove
+  const toSet = {};
+  const toRemove = [];
+  for (const [key, value] of Object.entries(pendingChanges)) {
+    if (value === null) {
+      toRemove.push(key);
+    } else {
+      toSet[key] = value;
+    }
+  }
+
+  try {
+    const result = await postSettings({ overrides: toSet, remove: toRemove });
+    WebApp.MainButton.hideProgress();
+
+    const errorKeys = Object.keys(result.errors || {});
+    const warningKeys = Object.keys(result.warnings || {});
+    const appliedKeys = Object.keys(result.applied || {});
+
+    if (errorKeys.length > 0) {
+      const msgs = errorKeys.map(k => `${k}: ${result.errors[k]}`);
+      setStatus('Errors: ' + msgs.join('; '), true);
+      // Remove successful ones from pending
+      for (const k of appliedKeys) {
+        overrides[k] = result.applied[k];
+        delete pendingChanges[k];
+      }
+      render();
+    } else {
+      // All good — update overrides
+      for (const k of appliedKeys) {
+        overrides[k] = result.applied[k];
+      }
+      for (const k of toRemove) {
+        delete overrides[k];
+      }
+      pendingChanges = {};
+      render();
+
+      let msg = `Applied ${appliedKeys.length} setting${appliedKeys.length !== 1 ? 's' : ''}`;
+      if (warningKeys.length > 0) {
+        const wMsgs = warningKeys.map(k => `${k}: ${result.warnings[k]}`);
+        msg += '. Warnings: ' + wMsgs.join('; ');
+      }
+      setStatus(msg);
+
+      if (warningKeys.length === 0) {
+        setTimeout(() => WebApp.close(), 1200);
+      }
+    }
+  } catch (e) {
+    WebApp.MainButton.hideProgress();
+    setStatus('Network error: ' + e.message, true);
+  }
+});
+
+function setStatus(msg, isError) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status' + (isError ? ' error' : '');
+  if (!isError) {
+    setTimeout(() => { el.textContent = ''; }, 5000);
+  }
+}
+
+// --- Init ---
+async function init() {
+  if (!API_BASE) {
+    document.getElementById('loading').textContent = 'Error: no API URL provided.';
+    return;
+  }
+
+  try {
+    const [reg, settings] = await Promise.all([fetchRegistry(), fetchSettings()]);
+    registry = reg;
+    overrides = settings;
+    original = { ...settings };
+
+    document.getElementById('loading').remove();
+    renderPresets();
+    render();
+  } catch (e) {
+    document.getElementById('loading').textContent = 'Failed to load: ' + e.message;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
