@@ -466,9 +466,18 @@ async def post_init(app) -> None:
     # Set menu button for Mini App if configured
     if config.webapp_url and config.api_base_url:
         url = f"{config.webapp_url}?api={config.api_base_url}"
-        await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Settings", web_app=WebAppInfo(url=url))
-        )
+        menu_button = MenuButtonWebApp(text="Settings", web_app=WebAppInfo(url=url))
+        # Set bot-wide default (private chats)
+        await app.bot.set_chat_menu_button(menu_button=menu_button)
+        # Set per-chat for known group chats
+        group_ids = {cid for _, cid in config.chat_users if cid < 0}
+        if config.notify_chat_id and config.notify_chat_id < 0:
+            group_ids.add(config.notify_chat_id)
+        for gid in group_ids:
+            try:
+                await app.bot.set_chat_menu_button(chat_id=gid, menu_button=menu_button)
+            except Exception as e:
+                print(f"Failed to set menu button for chat {gid}: {e}")
 
     # Start HTTP API server if configured
     if config.api_port > 0:
