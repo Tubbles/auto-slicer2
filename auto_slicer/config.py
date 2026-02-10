@@ -21,6 +21,9 @@ class Config:
     chat_users: set[tuple[int, int]]
     notify_chat_id: int | None
     registry: SettingsRegistry
+    api_port: int = 0
+    webapp_url: str = ""
+    api_base_url: str = ""
 
 
 def _parse_admin_users(raw: str) -> set[int]:
@@ -69,6 +72,10 @@ def load_config(config) -> Config:
     notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
     notify_chat_id = int(notify) if notify else None
 
+    api_port = int(config["TELEGRAM"].get("api_port", "0").strip() or "0")
+    webapp_url = config["TELEGRAM"].get("webapp_url", "").strip()
+    api_base_url = config["TELEGRAM"].get("api_base_url", "").strip()
+
     registry = load_registry(def_dir, printer_def)
     if config.has_section("BOUNDS_OVERRIDES"):
         _apply_bounds_overrides(registry, config["BOUNDS_OVERRIDES"])
@@ -84,6 +91,9 @@ def load_config(config) -> Config:
         chat_users=chat_users,
         notify_chat_id=notify_chat_id,
         registry=registry,
+        api_port=api_port,
+        webapp_url=webapp_url,
+        api_base_url=api_base_url,
     )
 
 
