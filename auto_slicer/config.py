@@ -5,7 +5,6 @@ from pathlib import Path
 from .settings_registry import SettingsRegistry, load_registry
 
 
-USERS_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / "allowed_users.txt"
 RELOAD_CHAT_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / ".reload_chat_id"
 
 
@@ -17,8 +16,7 @@ class Config:
     printer_def: str
     defaults: dict[str, str]
     telegram_token: str
-    admin_users: set[int]
-    chat_users: set[tuple[int, int]]
+    allowed_users: set[int]
     notify_chat_id: int | None
     registry: SettingsRegistry
     api_port: int = 0
@@ -26,22 +24,9 @@ class Config:
     api_base_url: str = ""
 
 
-def _parse_admin_users(raw: str) -> set[int]:
+def _parse_allowed_users(raw: str) -> set[int]:
     """Parse comma-separated user IDs into a set."""
     return set(int(x) for x in raw.split(",") if x.strip())
-
-
-def _load_chat_users(users_file: Path) -> set[tuple[int, int]]:
-    """Load chat-specific user permissions from file: 'user_id,chat_id' per line."""
-    result: set[tuple[int, int]] = set()
-    if not users_file.exists():
-        return result
-    for line in users_file.read_text().strip().split("\n"):
-        line = line.split("#")[0].strip()
-        if "," in line:
-            user_id, chat_id = line.split(",", 1)
-            result.add((int(user_id.strip()), int(chat_id.strip())))
-    return result
 
 
 def _apply_bounds_overrides(registry: SettingsRegistry, config_section) -> None:
@@ -66,8 +51,7 @@ def load_config(config) -> Config:
     telegram_token = config["TELEGRAM"]["bot_token"]
 
     allowed = config["TELEGRAM"].get("allowed_users", "").strip()
-    admin_users = _parse_admin_users(allowed) if allowed else set()
-    chat_users = _load_chat_users(USERS_FILE)
+    allowed_users = _parse_allowed_users(allowed) if allowed else set()
 
     notify = config["TELEGRAM"].get("notify_chat_id", "").strip()
     notify_chat_id = int(notify) if notify else None
@@ -87,8 +71,7 @@ def load_config(config) -> Config:
         printer_def=printer_def,
         defaults=defaults,
         telegram_token=telegram_token,
-        admin_users=admin_users,
-        chat_users=chat_users,
+        allowed_users=allowed_users,
         notify_chat_id=notify_chat_id,
         registry=registry,
         api_port=api_port,
@@ -97,21 +80,8 @@ def load_config(config) -> Config:
     )
 
 
-def save_users(config: Config) -> None:
-    """Save chat-specific user permissions to file."""
-    lines = [f"{uid},{cid}" for uid, cid in sorted(config.chat_users)]
-    USERS_FILE.write_text("\n".join(lines) + "\n" if lines else "")
-
-
-def is_allowed(config: Config, user_id: int, chat_id: int) -> bool:
-    """Check if user is allowed in this chat."""
-    if not config.admin_users and not config.chat_users:
-        return True
-    if user_id in config.admin_users:
-        return True
-    return (user_id, chat_id) in config.chat_users
-
-
-def is_admin(config: Config, user_id: int) -> bool:
-    """Check if user is an admin (from config.ini)."""
-    return user_id in config.admin_users
+def is_allowed(config: Config, user_id: int) -> bool:
+    """Check if user is allowed to use the bot."""
+    if not config.allowed_users:
+        return False
+    return user_id in config.allowed_users

@@ -3,25 +3,17 @@
 import argparse
 import configparser
 
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from auto_slicer.config import load_config
 from auto_slicer.handlers import (
     start_command,
     help_command,
     webapp_command,
-    settings_command,
-    mysettings_command,
-    clear_command,
-    preset_command,
     reload_command,
-    adduser_command,
-    removeuser_command,
-    listusers_command,
     post_init,
     post_shutdown,
     handle_document,
-    callback_router,
 )
 
 
@@ -48,15 +40,7 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("webapp", webapp_command))
-    app.add_handler(CommandHandler("settings", settings_command))
-    app.add_handler(CommandHandler("mysettings", mysettings_command))
-    app.add_handler(CommandHandler("clear", clear_command))
-    app.add_handler(CommandHandler("preset", preset_command))
     app.add_handler(CommandHandler("reload", reload_command))
-    app.add_handler(CommandHandler("adduser", adduser_command))
-    app.add_handler(CommandHandler("removeuser", removeuser_command))
-    app.add_handler(CommandHandler("listusers", listusers_command))
-    app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     print("Bot started...")

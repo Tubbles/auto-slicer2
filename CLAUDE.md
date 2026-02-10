@@ -29,12 +29,9 @@ python auto-slicer2.py -c /path/to/config.ini
 ## Bot Commands
 
 - `/start` - Welcome message and usage
-- `/settings key=value ...` - Set overrides (supports names, labels, fuzzy matching)
-- `/settings search <query>` - Find settings by keyword
-- `/mysettings` - Show current overrides with [x] remove buttons
-- `/preset` - Choose a preset via inline buttons
-- `/preset <name>` - Apply a preset directly (draft, standard, fine, strong)
-- `/clear` - Reset to defaults
+- `/help` - Show help text
+- `/webapp` - Open settings Mini App
+- `/reload` - Pull updates and restart
 
 ## Coding Style
 
@@ -50,52 +47,42 @@ python auto-slicer2.py -c /path/to/config.ini
 ```
 auto_slicer/
   __init__.py              # empty
-  config.py                # Config class, user file I/O, permission checks
+  config.py                # Config class, permission checks
   slicer.py                # slice_file()
-  handlers.py              # Telegram command/callback handlers, inline keyboards
+  handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
   settings_match.py        # SettingsMatcher (fuzzy/natural language resolution)
   settings_validate.py     # SettingsValidator (type + bounds checking)
   presets.py               # PresetManager + BUILTIN_PRESETS
+  web_auth.py              # Telegram initData HMAC-SHA256 validation
+  web_api.py               # aiohttp HTTP API for Mini App
 auto-slicer2.py            # thin entry point (argparse, app wiring)
+webapp/
+  index.html               # Mini App frontend (deployed to GitHub Pages)
 tests/
-  test_settings.py         # tests for registry, matcher, validator, presets, inline keyboards
+  test_settings.py         # tests for registry, matcher, validator, presets
+  test_web_api.py          # tests for web API pure helpers
+  test_web_auth.py         # tests for Telegram initData validation
 ```
 
 ### Key Components
 
-**Config** (`config.py`): Loads paths, defaults, and Telegram token from config.ini. Creates a `SettingsRegistry` at init time.
+**Config** (`config.py`): Loads paths, defaults, and Telegram token from config.ini. Creates a `SettingsRegistry` at init time. Permission model: `allowed_users` from config.ini (empty = nobody allowed).
 
 **SettingsRegistry** (`settings_registry.py`): Loads CuraEngine's fdmprinter.def.json, flattens the nested settings tree, follows the inherits chain (e.g. creality_ender3 → creality_base → fdmprinter), and builds label→key indexes.
 
-**SettingsMatcher** (`settings_match.py`): Resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib).
+**SettingsMatcher** (`settings_match.py`): Resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib). Used by the web API.
 
-**SettingsValidator** (`settings_validate.py`): Type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
+**SettingsValidator** (`settings_validate.py`): Type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning. Used by the web API.
 
 **PresetManager** (`presets.py`): Built-in presets (draft/standard/fine/strong) and optional custom presets from presets.json.
 
-**Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID (in-memory, resets on restart).
-
-### Inline Keyboard Callbacks
-
-All inline button callbacks route through `callback_router()`, dispatched by prefix:
-
-```
-preset:<name>            → apply preset (e.g. "preset:draft")
-undo_preset              → restore pre-preset settings
-pick:<key>               → show value picker for setting
-val:<key>:<value>        → apply a value to a setting
-rm:<key>                 → remove single override from /mysettings
-disambig:<key>:<value>   → resolve ambiguous match with known value
-```
-
-Telegram limits callback_data to 64 bytes. Settings with extremely long keys are skipped for buttons and fall back to text prompts.
+**Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID (in-memory, resets on restart). Modified via the Mini App web API.
 
 ### Workflow
 
-1. User sends `/settings layer_height=0.1` (or `/settings "layer height"=0.1`, or `/preset fine`)
-2. Setting key resolved via SettingsMatcher, value validated via SettingsValidator
-3. User sends STL file as document
+1. User configures settings via the Mini App (webapp)
+2. User sends STL file as document
 4. Bot downloads to temp directory
 5. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
 6. On success: archives STL+gcode to timestamped subfolder, notifies user with path
@@ -105,10 +92,11 @@ Telegram limits callback_data to 64 bytes. Settings with extremely long keys are
 
 - `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition
 - `[DEFAULT_SETTINGS]`: CuraEngine setting key-value pairs
-- `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = everyone)
+- `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = nobody), api_port, webapp_url, api_base_url
 
 ## Git Workflow
 
+- **Always commit and push when you're done with a task.** Do not wait to be asked — committing and pushing is part of completing the work.
 - Create small, focused commits as you go so changes are easy to review and revert.
 - Each commit should address a single concern (one bug fix, one feature, one refactor).
 - Use a succinct imperative commit title (e.g. "Add retry logic for API calls").

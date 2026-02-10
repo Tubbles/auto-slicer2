@@ -2,102 +2,31 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonDefault, Update, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from .config import Config, RELOAD_CHAT_FILE, save_users, is_allowed, is_admin
+from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .slicer import slice_file
-from .settings_match import resolve_setting
-from .settings_validate import validate as validate_setting
-from .presets import load_presets
-
-
-# Maximum callback_data length in Telegram Bot API
-_MAX_CALLBACK_DATA = 64
 
 
 # Per-user settings overrides, keyed by Telegram user ID
 user_settings: dict[int, dict] = {}
 
 
-def _resolve_pair(registry, query: str, raw_value: str) -> dict:
-    """Resolve one user query+value pair against the registry.
-
-    Returns a dict with 'status' being one of:
-      'unknown'   — no match found (has 'query')
-      'ambiguous' — multiple candidates (has 'query', 'candidates')
-      'invalid'   — validation failed (has 'defn', 'error')
-      'ok'        — success (has 'key', 'defn', 'value', 'warning')
-    """
-    resolved_key, candidates = resolve_setting(registry, query)
-    if resolved_key is None and not candidates:
-        return {"status": "unknown", "query": query}
-    if resolved_key is None:
-        return {"status": "ambiguous", "query": query, "candidates": candidates}
-    defn = registry.get(resolved_key)
-    result = validate_setting(defn, raw_value)
-    if not result.ok:
-        return {"status": "invalid", "defn": defn, "error": result.error}
-    return {"status": "ok", "key": resolved_key, "defn": defn,
-            "value": result.coerced_value, "warning": result.warning}
-
-
-def _search_settings(all_settings: dict, query: str) -> list:
-    """Filter settings by keyword match on key, label, or description."""
-    return [
-        defn for key, defn in all_settings.items()
-        if (query in key.lower()
-            or query in defn.label.lower()
-            or query in defn.description.lower())
-    ]
-
-
-def _format_search_results(results: list, query: str, overrides: dict) -> str:
-    """Format search results as a text block (capped at 4096 chars)."""
-    lines = [f"Settings matching '{query}' ({min(len(results), 10)} of {len(results)}):\n"]
-    for defn in results[:10]:
-        unit = f" {defn.unit}" if defn.unit else ""
-        current = overrides.get(defn.key)
-        current_str = f" (set: {current})" if current else ""
-        lines.append(
-            f"  {defn.key}\n"
-            f"    {defn.label} [{defn.setting_type}]"
-            f" default: {defn.default_value}{unit}{current_str}"
-        )
-    text = "\n".join(lines)
-    if len(text) > 4096:
-        text = text[:4090] + "\n..."
-    return text
-
-
 HELP_TEXT = """Auto-Slicer Bot
 
 Send me an STL file and I'll slice it with CuraEngine.
 
-Settings:
-/settings key=value - Set overrides (names or labels)
-/settings search <query> - Find settings by keyword
-/mysettings - Show your current overrides (tap to remove)
-/preset - Choose a preset via buttons
-/preset <name> - Apply a preset directly
-/clear - Reset to defaults
-/webapp - Open settings Mini App (in groups)
-In DMs, use the Settings button next to the text input.
-
-Most responses include interactive buttons for quick actions.
-
-Admin:
-/adduser - Reply to add user (this chat only)
-/removeuser - Reply to remove user from this chat
-/listusers - Show allowed users for this chat
+Commands:
+/webapp - Open settings Mini App
 /reload - Pull updates and restart"""
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     config: Config = context.bot_data["config"]
-    if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
+    if not is_allowed(config, update.effective_user.id):
         await update.message.reply_text("You are not authorized to use this bot.")
         return
     await update.message.reply_text(HELP_TEXT)
@@ -106,7 +35,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
     config: Config = context.bot_data["config"]
-    if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
+    if not is_allowed(config, update.effective_user.id):
         return
     await update.message.reply_text(HELP_TEXT)
 
@@ -114,7 +43,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /webapp command — open settings Mini App."""
     config: Config = context.bot_data["config"]
-    if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
+    if not is_allowed(config, update.effective_user.id):
         return
 
     if not config.webapp_url or not config.api_base_url:
@@ -122,248 +51,16 @@ async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     url = f"{config.webapp_url}?api={config.api_base_url}"
-    # WebAppInfo buttons only work in private chats; use a plain URL in groups
-    if update.effective_chat.type == "private":
-        button = InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url))
-    else:
-        button = InlineKeyboardButton("Open Settings", url=url)
+    button = InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url))
     keyboard = InlineKeyboardMarkup([[button]])
     await update.message.reply_text("Tap to open settings:", reply_markup=keyboard)
-
-
-def _parse_settings_args(text: str) -> list[tuple[str, str]]:
-    """Parse 'key=value' pairs from message text after the /settings command.
-
-    Supports quoted keys: "layer height"=0.2 or 'layer height'=0.2
-    and plain keys: layer_height=0.2
-    """
-    import re
-    # Strip the /settings command prefix
-    text = re.sub(r"^/settings(@\S+)?\s*", "", text).strip()
-    if not text:
-        return []
-
-    pairs = []
-    # Match: optional quotes around key, then =, then value (up to next space or end)
-    pattern = re.compile(
-        r"""(?:"([^"]+)"|'([^']+)'|(\S+?))=(\S+)""",
-    )
-    for m in pattern.finditer(text):
-        key = m.group(1) or m.group(2) or m.group(3)
-        val = m.group(4)
-        pairs.append((key, val))
-    return pairs
-
-
-async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /settings command to set user overrides."""
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    if not is_allowed(config, user_id, update.effective_chat.id):
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "Usage: /settings key=value ...\n\n"
-            "Common settings:\n"
-            "  layer_height - Layer height in mm\n"
-            "  infill_sparse_density - Infill % (0-100)\n"
-            "  wall_line_count - Number of walls\n"
-            "  support_enable - Generate supports (true/false)\n"
-            "  adhesion_type - skirt, brim, raft, none\n"
-            "  material_print_temperature - Hotend temp\n"
-            "  speed_print - Print speed in mm/s\n\n"
-            "You can use setting names or labels:\n"
-            '  /settings layer_height=0.2\n'
-            '  /settings "layer height"=0.2\n\n'
-            "Use /settings search <query> to find settings."
-        )
-        return
-
-    # Delegate to search handler (commit 6 adds this)
-    if context.args[0].lower() == "search":
-        await _settings_search(update, context)
-        return
-
-    pairs = _parse_settings_args(update.message.text)
-    if not pairs:
-        await update.message.reply_text("No valid key=value pairs found.")
-        return
-
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-
-    response_lines = []
-    for query, raw_value in pairs:
-        resolved = _resolve_pair(config.registry, query, raw_value)
-
-        if resolved["status"] == "unknown":
-            response_lines.append(f"Unknown setting: '{query}'")
-            continue
-
-        if resolved["status"] == "ambiguous":
-            # Send buttons for each candidate (needs its own message)
-            buttons = []
-            for c in resolved["candidates"][:5]:
-                cb_data = f"disambig:{c.key}:{raw_value}" if raw_value else f"pick:{c.key}"
-                if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
-                    buttons.append([InlineKeyboardButton(
-                        f"{c.label} ({c.key})", callback_data=cb_data,
-                    )])
-            if buttons:
-                keyboard = InlineKeyboardMarkup(buttons)
-                await update.message.reply_text(
-                    f"Ambiguous: '{query}'. Did you mean:",
-                    reply_markup=keyboard,
-                )
-            else:
-                names = [f"  {c.key} ({c.label})" for c in resolved["candidates"][:5]]
-                response_lines.append(
-                    f"Ambiguous: '{query}'. Did you mean:\n" + "\n".join(names)
-                )
-            continue
-
-        if resolved["status"] == "invalid":
-            response_lines.append(f"{resolved['defn'].label}: {resolved['error']}")
-            continue
-
-        user_settings[user_id][resolved["key"]] = resolved["value"]
-        defn = resolved["defn"]
-        unit = f" {defn.unit}" if defn.unit else ""
-        response_lines.append(f"{defn.label}: {resolved['value']}{unit}")
-        if resolved["warning"]:
-            response_lines.append(f"  Warning: {resolved['warning']}")
-
-    if response_lines:
-        await update.message.reply_text("\n".join(response_lines))
-
-
-async def _settings_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /settings search <query> — search settings by key, label, or description."""
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    query = " ".join(context.args[1:]).lower()
-
-    if not query:
-        await update.message.reply_text("Usage: /settings search <query>\nExample: /settings search infill")
-        return
-
-    overrides = user_settings.get(user_id, {})
-    results = _search_settings(config.registry.all_settings(), query)
-
-    if not results:
-        await update.message.reply_text(f"No settings found matching '{query}'.")
-        return
-
-    text = _format_search_results(results, query, overrides)
-    buttons = []
-    for defn in results[:10]:
-        cb_data = f"pick:{defn.key}"
-        if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
-            buttons.append([InlineKeyboardButton(
-                f"Set {defn.label}", callback_data=cb_data,
-            )])
-
-    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-
-def _format_mysettings(config: Config, settings: dict) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Format the /mysettings text and remove-buttons keyboard."""
-    if not settings:
-        return "No custom settings. Using defaults.", None
-
-    lines = []
-    buttons = []
-    for key, val in settings.items():
-        defn = config.registry.get(key)
-        if defn:
-            unit = f" {defn.unit}" if defn.unit else ""
-            lines.append(f"  {defn.label}: {val}{unit}")
-            label = defn.label
-        else:
-            lines.append(f"  {key}: {val}")
-            label = key
-        cb_data = f"rm:{key}"
-        if len(cb_data.encode()) <= _MAX_CALLBACK_DATA:
-            buttons.append([InlineKeyboardButton(
-                f"x {label}", callback_data=cb_data,
-            )])
-
-    text = "Your settings:\n" + "\n".join(lines)
-    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
-    return text, keyboard
-
-
-async def mysettings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /mysettings command to show current overrides."""
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    if not is_allowed(config, user_id, update.effective_chat.id):
-        return
-    settings = user_settings.get(user_id, {})
-
-    text, keyboard = _format_mysettings(config, settings)
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-
-async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /clear command to reset user settings."""
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    if not is_allowed(config, user_id, update.effective_chat.id):
-        return
-    user_settings.pop(user_id, None)
-    await update.message.reply_text("Settings cleared. Using defaults.")
-
-
-async def preset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /preset command to list or apply presets."""
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    if not is_allowed(config, user_id, update.effective_chat.id):
-        return
-
-    presets = load_presets()
-
-    if not context.args:
-        buttons = []
-        for name, preset in presets.items():
-            buttons.append(InlineKeyboardButton(
-                name.capitalize(), callback_data=f"preset:{name}",
-            ))
-        keyboard = InlineKeyboardMarkup([buttons])
-        await update.message.reply_text("Choose a preset:", reply_markup=keyboard)
-        return
-
-    name = context.args[0].lower()
-    preset = presets.get(name)
-    if not preset:
-        await update.message.reply_text(
-            f"Unknown preset '{name}'. Available: {', '.join(presets.keys())}"
-        )
-        return
-
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id].update(preset["settings"])
-
-    lines = [f"Applied preset '{name}':\n"]
-    for key, val in preset["settings"].items():
-        defn = config.registry.get(key)
-        if defn:
-            unit = f" {defn.unit}" if defn.unit else ""
-            lines.append(f"  {defn.label}: {val}{unit}")
-        else:
-            lines.append(f"  {key}: {val}")
-    await update.message.reply_text("\n".join(lines))
 
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /reload command to pull updates and restart."""
     import os
     config: Config = context.bot_data["config"]
-    if not is_admin(config, update.effective_user.id):
+    if not is_allowed(config, update.effective_user.id):
         return
 
     await update.message.reply_text("Pulling latest changes...")
@@ -380,89 +77,6 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(f"{result.stdout.strip()}\n\nRestarting...")
     RELOAD_CHAT_FILE.write_text(str(update.effective_chat.id))
     os._exit(0)
-
-
-async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /adduser command - reply to a message to add that user to this chat."""
-    config: Config = context.bot_data["config"]
-    if not is_admin(config, update.effective_user.id):
-        return
-
-    reply = update.message.reply_to_message
-    if not reply or not reply.from_user:
-        await update.message.reply_text("Reply to a message from the user you want to add.")
-        return
-
-    target = reply.from_user
-    chat_id = update.effective_chat.id
-
-    if target.id in config.admin_users:
-        await update.message.reply_text(f"@{target.username or target.id} is already an admin (global access).")
-        return
-
-    if (target.id, chat_id) in config.chat_users:
-        await update.message.reply_text(f"@{target.username or target.id} is already allowed in this chat.")
-        return
-
-    config.chat_users.add((target.id, chat_id))
-    save_users(config)
-    name = f"@{target.username}" if target.username else target.full_name
-    await update.message.reply_text(f"Added {name} ({target.id}) to this chat.")
-
-
-async def removeuser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /removeuser command - reply to a message to remove that user from this chat."""
-    config: Config = context.bot_data["config"]
-    if not is_admin(config, update.effective_user.id):
-        return
-
-    reply = update.message.reply_to_message
-    if not reply or not reply.from_user:
-        await update.message.reply_text("Reply to a message from the user you want to remove.")
-        return
-
-    target = reply.from_user
-    chat_id = update.effective_chat.id
-
-    if target.id in config.admin_users:
-        await update.message.reply_text("Cannot remove admin users (edit config.ini instead).")
-        return
-
-    if (target.id, chat_id) not in config.chat_users:
-        await update.message.reply_text(f"@{target.username or target.id} is not in this chat's allowed list.")
-        return
-
-    config.chat_users.discard((target.id, chat_id))
-    save_users(config)
-    name = f"@{target.username}" if target.username else target.full_name
-    await update.message.reply_text(f"Removed {name} ({target.id}) from this chat.")
-
-
-async def listusers_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /listusers command - show allowed users for this chat."""
-    config: Config = context.bot_data["config"]
-    if not is_admin(config, update.effective_user.id):
-        return
-
-    chat_id = update.effective_chat.id
-
-    if not config.admin_users and not config.chat_users:
-        await update.message.reply_text("No user restrictions (everyone allowed).")
-        return
-
-    lines = []
-    # Show admins (global access)
-    for uid in sorted(config.admin_users):
-        lines.append(f"  {uid} (admin - global)")
-    # Show users with access to this specific chat
-    for uid, cid in sorted(config.chat_users):
-        if cid == chat_id:
-            lines.append(f"  {uid} (this chat only)")
-
-    if lines:
-        await update.message.reply_text("Allowed users:\n" + "\n".join(lines))
-    else:
-        await update.message.reply_text("No users allowed in this chat (admins only).")
 
 
 async def post_init(app) -> None:
@@ -483,12 +97,8 @@ async def post_init(app) -> None:
         except Exception as e:
             print(f"Startup notification failed: {e}")
 
-    # Set menu button for Mini App (private chats only — Telegram limitation)
-    if config.webapp_url and config.api_base_url:
-        url = f"{config.webapp_url}?api={config.api_base_url}"
-        await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Settings", web_app=WebAppInfo(url=url))
-        )
+    # Clear any previously-set menu button (e.g. the old "four squares" icon)
+    await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
 
     # Start HTTP API server if configured
     if config.api_port > 0:
@@ -520,7 +130,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     config: Config = context.bot_data["config"]
     user_id = update.effective_user.id
-    if not is_allowed(config, user_id, update.effective_chat.id):
+    if not is_allowed(config, user_id):
         return
     overrides = user_settings.get(user_id, {})
 
@@ -542,186 +152,3 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         else:
             await update.message.reply_text(f"Slicing failed: {message}")
-
-
-# --- Inline keyboard helpers ---
-
-def _build_value_picker(defn) -> InlineKeyboardMarkup | None:
-    """Build an inline keyboard for bool/enum settings. Returns None for others."""
-    if defn.setting_type == "bool":
-        return InlineKeyboardMarkup([[
-            InlineKeyboardButton("True", callback_data=f"val:{defn.key}:true"),
-            InlineKeyboardButton("False", callback_data=f"val:{defn.key}:false"),
-        ]])
-
-    if defn.setting_type == "enum":
-        buttons = []
-        for opt_key, opt_label in defn.options.items():
-            cb_data = f"val:{defn.key}:{opt_key}"
-            if len(cb_data.encode()) > _MAX_CALLBACK_DATA:
-                continue  # Skip options that exceed Telegram's limit
-            buttons.append(InlineKeyboardButton(opt_label, callback_data=cb_data))
-        if not buttons:
-            return None
-        # Arrange in rows of 3
-        rows = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
-        return InlineKeyboardMarkup(rows)
-
-    return None
-
-
-# --- Inline keyboard callback handling ---
-
-async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Route inline keyboard callbacks by prefix."""
-    query = update.callback_query
-    data = query.data
-
-    if data.startswith("preset:"):
-        await _cb_preset(update, context)
-    elif data == "undo_preset":
-        await _cb_undo_preset(update, context)
-    elif data.startswith("pick:"):
-        await _cb_pick(update, context)
-    elif data.startswith("val:") or data.startswith("disambig:"):
-        await _cb_set_value(update, context)
-    elif data.startswith("rm:"):
-        await _cb_rm(update, context)
-    else:
-        await query.answer("Unknown action.")
-
-
-async def _cb_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    name = query.data.removeprefix("preset:")
-
-    presets = load_presets()
-    preset = presets.get(name)
-    if not preset:
-        await query.answer(f"Unknown preset '{name}'.")
-        return
-
-    # Store previous settings for undo
-    context.user_data["prev_settings"] = dict(user_settings.get(user_id, {}))
-
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id].update(preset["settings"])
-
-    lines = [f"Applied preset '{name}':\n"]
-    for key, val in preset["settings"].items():
-        defn = config.registry.get(key)
-        if defn:
-            unit = f" {defn.unit}" if defn.unit else ""
-            lines.append(f"  {defn.label}: {val}{unit}")
-        else:
-            lines.append(f"  {key}: {val}")
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Undo", callback_data="undo_preset")],
-    ])
-    await query.answer()
-    await query.edit_message_text("\n".join(lines), reply_markup=keyboard)
-
-
-async def _cb_undo_preset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user_id = update.effective_user.id
-    prev = context.user_data.get("prev_settings")
-
-    if prev is None:
-        await query.answer("Nothing to undo.")
-        return
-
-    user_settings[user_id] = prev
-    context.user_data.pop("prev_settings", None)
-
-    await query.answer("Preset undone.")
-    await query.edit_message_text("Preset undone. Previous settings restored.")
-
-
-async def _cb_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    config: Config = context.bot_data["config"]
-    key = query.data.removeprefix("pick:")
-
-    defn = config.registry.get(key)
-    if not defn:
-        await query.answer("Unknown setting.")
-        return
-
-    keyboard = _build_value_picker(defn)
-    if keyboard:
-        unit = f" ({defn.unit})" if defn.unit else ""
-        await query.answer()
-        await query.edit_message_text(
-            f"{defn.label}{unit}:", reply_markup=keyboard,
-        )
-    else:
-        unit = f" {defn.unit}" if defn.unit else ""
-        await query.answer()
-        await query.edit_message_text(
-            f"Type: /settings {defn.key}=<value>\n"
-            f"  {defn.label} [{defn.setting_type}] default: {defn.default_value}{unit}",
-        )
-
-
-async def _cb_set_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle both val: and disambig: callbacks (identical logic)."""
-    query = update.callback_query
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-
-    # Format: <prefix>:<key>:<value>
-    parts = query.data.split(":", 2)
-    if len(parts) < 3:
-        await query.answer("Invalid callback data.")
-        return
-    key, raw_value = parts[1], parts[2]
-
-    defn = config.registry.get(key)
-    if not defn:
-        await query.answer("Unknown setting.")
-        return
-
-    result = validate_setting(defn, raw_value)
-    if not result.ok:
-        await query.answer(result.error[:200])  # Telegram answer limit
-        return
-
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id][key] = result.coerced_value
-
-    unit = f" {defn.unit}" if defn.unit else ""
-    text = f"{defn.label}: {result.coerced_value}{unit}"
-    if result.warning:
-        text += f"\nWarning: {result.warning}"
-
-    await query.answer()
-    await query.edit_message_text(text)
-
-
-async def _cb_rm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    config: Config = context.bot_data["config"]
-    user_id = update.effective_user.id
-    key = query.data.removeprefix("rm:")
-
-    settings = user_settings.get(user_id, {})
-    removed = settings.pop(key, None)
-    if not settings:
-        user_settings.pop(user_id, None)
-
-    defn = config.registry.get(key)
-    label = defn.label if defn else key
-    await query.answer(f"Removed {label}.")
-
-    # Re-render the /mysettings message in-place
-    remaining = user_settings.get(user_id, {})
-    text, keyboard = _format_mysettings(config, remaining)
-    await query.edit_message_text(text, reply_markup=keyboard)
-
-

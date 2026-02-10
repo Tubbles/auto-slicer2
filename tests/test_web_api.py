@@ -48,8 +48,7 @@ def _make_config(settings: dict[str, SettingDefinition] | None = None) -> Config
         printer_def="",
         defaults={"test_key": "1.0"},
         telegram_token="test:token",
-        admin_users=set(),
-        chat_users=set(),
+        allowed_users=set(),
         notify_chat_id=None,
         registry=registry,
     )

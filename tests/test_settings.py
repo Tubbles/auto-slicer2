@@ -5,17 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from auto_slicer.config import load_config, _parse_admin_users, is_allowed, is_admin, Config
+from auto_slicer.config import load_config, _parse_allowed_users, is_allowed, Config
 from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
     _flatten_settings, _apply_overrides, _build_indexes,
 )
 from auto_slicer.settings_match import resolve_setting, _match_exact_key, _match_substring
 from auto_slicer.settings_validate import validate, ValidationResult
-from auto_slicer.handlers import (
-    _parse_settings_args, _build_value_picker, _MAX_CALLBACK_DATA,
-    _resolve_pair, _search_settings, _format_search_results,
-)
 from auto_slicer.presets import load_presets, BUILTIN_PRESETS
 
 
@@ -359,38 +355,6 @@ class TestSettingsValidator:
         assert result.ok
 
 
-# --- Argument parser tests ---
-
-class TestParseSettingsArgs:
-    def test_simple_key_value(self):
-        pairs = _parse_settings_args("/settings layer_height=0.2")
-        assert pairs == [("layer_height", "0.2")]
-
-    def test_multiple_pairs(self):
-        pairs = _parse_settings_args("/settings layer_height=0.2 infill_sparse_density=20")
-        assert pairs == [("layer_height", "0.2"), ("infill_sparse_density", "20")]
-
-    def test_double_quoted_key(self):
-        pairs = _parse_settings_args('/settings "layer height"=0.2')
-        assert pairs == [("layer height", "0.2")]
-
-    def test_single_quoted_key(self):
-        pairs = _parse_settings_args("/settings 'layer height'=0.2")
-        assert pairs == [("layer height", "0.2")]
-
-    def test_empty_args(self):
-        pairs = _parse_settings_args("/settings")
-        assert pairs == []
-
-    def test_no_equals(self):
-        pairs = _parse_settings_args("/settings justtext")
-        assert pairs == []
-
-    def test_bot_mention(self):
-        pairs = _parse_settings_args("/settings@mybot layer_height=0.2")
-        assert pairs == [("layer_height", "0.2")]
-
-
 # --- Preset tests ---
 
 class TestPresets:
@@ -459,196 +423,30 @@ class TestBoundsOverrides:
 # --- Config function tests ---
 
 class TestConfigFunctions:
-    def test_parse_admin_users_single(self):
-        assert _parse_admin_users("123") == {123}
+    def test_parse_allowed_users_single(self):
+        assert _parse_allowed_users("123") == {123}
 
-    def test_parse_admin_users_multiple(self):
-        assert _parse_admin_users("1, 2, 3") == {1, 2, 3}
+    def test_parse_allowed_users_multiple(self):
+        assert _parse_allowed_users("1, 2, 3") == {1, 2, 3}
 
-    def test_parse_admin_users_empty(self):
-        assert _parse_admin_users("") == set()
+    def test_parse_allowed_users_empty(self):
+        assert _parse_allowed_users("") == set()
 
-    def test_is_allowed_no_restrictions(self):
+    def test_is_allowed_empty_means_nobody(self):
         cfg = Config(
             archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
             printer_def="", defaults={}, telegram_token="",
-            admin_users=set(), chat_users=set(), notify_chat_id=None,
+            allowed_users=set(), notify_chat_id=None,
             registry=None,
         )
-        assert is_allowed(cfg, 999, 888) is True
+        assert is_allowed(cfg, 999) is False
 
-    def test_is_allowed_admin_global(self):
+    def test_is_allowed_listed_user(self):
         cfg = Config(
             archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
             printer_def="", defaults={}, telegram_token="",
-            admin_users={42}, chat_users=set(), notify_chat_id=None,
+            allowed_users={42}, notify_chat_id=None,
             registry=None,
         )
-        assert is_allowed(cfg, 42, 100) is True
-        assert is_allowed(cfg, 99, 100) is False
-
-    def test_is_admin(self):
-        cfg = Config(
-            archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
-            printer_def="", defaults={}, telegram_token="",
-            admin_users={42}, chat_users=set(), notify_chat_id=None,
-            registry=None,
-        )
-        assert is_admin(cfg, 42) is True
-        assert is_admin(cfg, 99) is False
-
-
-# --- Inline keyboard tests ---
-
-class TestInlineKeyboard:
-    def test_bool_value_picker(self, registry):
-        defn = registry.get("support_enable")
-        keyboard = _build_value_picker(defn)
-        assert keyboard is not None
-        # Should have one row with True and False buttons
-        assert len(keyboard.inline_keyboard) == 1
-        labels = [btn.text for btn in keyboard.inline_keyboard[0]]
-        assert "True" in labels
-        assert "False" in labels
-
-    def test_enum_value_picker(self, registry):
-        defn = registry.get("adhesion_type")
-        keyboard = _build_value_picker(defn)
-        assert keyboard is not None
-        # Should have buttons for each option (skirt, brim, raft, none)
-        all_buttons = [btn for row in keyboard.inline_keyboard for btn in row]
-        assert len(all_buttons) >= 3  # at least skirt, brim, raft
-
-    def test_float_returns_none(self, registry):
-        defn = registry.get("layer_height")
-        assert _build_value_picker(defn) is None
-
-    def test_int_returns_none(self, registry):
-        defn = registry.get("wall_line_count")
-        assert _build_value_picker(defn) is None
-
-    def test_callback_data_fits_common_settings(self, registry):
-        """Verify val: callback_data for common settings fits in 64 bytes."""
-        common_keys = [
-            "support_enable", "adhesion_type", "layer_height",
-            "infill_sparse_density", "wall_line_count",
-            "material_print_temperature", "speed_print",
-        ]
-        for key in common_keys:
-            cb = f"val:{key}:some_value"
-            assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
-                f"callback_data too long for {key}: {len(cb.encode())} bytes"
-            )
-
-    def test_preset_callback_data_fits(self):
-        presets = load_presets()
-        for name in presets:
-            cb = f"preset:{name}"
-            assert len(cb.encode()) <= _MAX_CALLBACK_DATA, (
-                f"preset callback_data too long for {name}: {len(cb.encode())} bytes"
-            )
-
-
-class TestResolvePair:
-    """Tests for the _resolve_pair pure function."""
-
-    def test_ok(self, registry):
-        result = _resolve_pair(registry, "layer_height", "0.2")
-        assert result["status"] == "ok"
-        assert result["key"] == "layer_height"
-        assert result["value"] == "0.2"
-
-    def test_unknown(self, registry):
-        result = _resolve_pair(registry, "nonexistent_xyz_123", "0.2")
-        assert result["status"] == "unknown"
-        assert result["query"] == "nonexistent_xyz_123"
-
-    def test_invalid(self, registry):
-        result = _resolve_pair(registry, "layer_height", "not_a_number")
-        assert result["status"] == "invalid"
-        assert "error" in result
-
-    def test_ambiguous(self, registry):
-        result = _resolve_pair(registry, "speed", "60")
-        assert result["status"] == "ambiguous"
-        assert len(result["candidates"]) > 1
-
-
-class TestSearchSettings:
-    """Tests for the _search_settings pure function."""
-
-    def test_finds_by_key(self):
-        defn = SettingDefinition(
-            key="layer_height", label="Layer Height", description="Height of each layer",
-            setting_type="float", default_value="0.2", unit="mm",
-            options=None, minimum_value=None, maximum_value=None,
-            minimum_value_warning=None, maximum_value_warning=None,
-            category="quality",
-        )
-        results = _search_settings({"layer_height": defn}, "layer")
-        assert len(results) == 1
-        assert results[0].key == "layer_height"
-
-    def test_finds_by_label(self):
-        defn = SettingDefinition(
-            key="my_key", label="Print Speed", description="",
-            setting_type="float", default_value="60", unit="mm/s",
-            options=None, minimum_value=None, maximum_value=None,
-            minimum_value_warning=None, maximum_value_warning=None,
-            category="speed",
-        )
-        results = _search_settings({"my_key": defn}, "print speed")
-        assert len(results) == 1
-
-    def test_no_match(self):
-        defn = SettingDefinition(
-            key="abc", label="Abc", description="Abc setting",
-            setting_type="str", default_value="", unit="",
-            options=None, minimum_value=None, maximum_value=None,
-            minimum_value_warning=None, maximum_value_warning=None,
-            category="misc",
-        )
-        results = _search_settings({"abc": defn}, "zzzzz")
-        assert results == []
-
-
-class TestFormatSearchResults:
-    """Tests for the _format_search_results pure function."""
-
-    def test_basic_format(self):
-        defn = SettingDefinition(
-            key="layer_height", label="Layer Height", description="",
-            setting_type="float", default_value="0.2", unit="mm",
-            options=None, minimum_value=None, maximum_value=None,
-            minimum_value_warning=None, maximum_value_warning=None,
-            category="quality",
-        )
-        text = _format_search_results([defn], "layer", {})
-        assert "layer_height" in text
-        assert "Layer Height" in text
-        assert "0.2" in text
-
-    def test_shows_current_override(self):
-        defn = SettingDefinition(
-            key="layer_height", label="Layer Height", description="",
-            setting_type="float", default_value="0.2", unit="mm",
-            options=None, minimum_value=None, maximum_value=None,
-            minimum_value_warning=None, maximum_value_warning=None,
-            category="quality",
-        )
-        text = _format_search_results([defn], "layer", {"layer_height": "0.1"})
-        assert "(set: 0.1)" in text
-
-    def test_truncates_long_text(self):
-        defns = []
-        for i in range(50):
-            defns.append(SettingDefinition(
-                key=f"setting_{i}", label=f"Setting Number {i}" * 10,
-                description="x" * 200,
-                setting_type="str", default_value="val", unit="",
-                options=None, minimum_value=None, maximum_value=None,
-                minimum_value_warning=None, maximum_value_warning=None,
-                category="misc",
-            ))
-        text = _format_search_results(defns, "setting", {})
-        assert len(text) <= 4096
+        assert is_allowed(cfg, 42) is True
+        assert is_allowed(cfg, 99) is False
