@@ -1,75 +1,34 @@
 # Telegram Mini App for Settings UI
 
-## Concept
+## Status: Implemented
 
-Replace the inline-keyboard settings flow with a Mini App (WebApp) that opens
-as a bottom sheet inside Telegram. Users get native sliders, toggles, and
-dropdowns instead of chat-based button presses.
+Core implementation complete. The Mini App provides a full-screen settings
+panel with search, presets, and type-appropriate controls for all 673 settings.
 
-## Layout sketch
+### Done
 
-```
-┌─────────────────────────────────┐
-│  ← Auto-Slicer Settings        │  header (auto-themed)
-├─────────────────────────────────┤
-│  Preset:  [Draft] [Std] [Fine] │  tap to apply
-│                                 │
-│  ── Quality ──────────────────  │
-│  Layer Height          [0.2 ▾]  │  dropdown / slider
-│  Wall Line Count       [ 3  ]   │  stepper +/-
-│                                 │
-│  ── Infill ───────────────────  │
-│  Infill Density     ====○ 20%   │  range slider
-│  Infill Pattern        [grid ▾] │  dropdown (enum)
-│                                 │
-│  ── Support ──────────────────  │
-│  Support Enable        [  OFF]  │  toggle (bool)
-│  Adhesion Type      [skirt ▾]   │
-│                                 │
-│  ── Speed / Temp ─────────────  │
-│  Print Speed        ===○ 50mm/s │
-│  Print Temp            [200]    │
-│  Bed Temp              [ 60]    │
-├─────────────────────────────────┤
-│          [ Apply Settings ]     │  MainButton (sticky)
-└─────────────────────────────────┘
-```
+- [x] `auto_slicer/web_auth.py` — initData HMAC-SHA256 validation
+- [x] `auto_slicer/web_api.py` — aiohttp HTTP API (registry, get/post settings)
+- [x] `webapp/index.html` — self-contained Mini App frontend
+- [x] Config fields: `api_port`, `webapp_url`, `api_base_url`
+- [x] `/webapp` command sends keyboard button with WebAppInfo
+- [x] `post_init` / `post_shutdown` lifecycle for aiohttp server
+- [x] Tests for auth module and API pure helpers
 
-## Control mapping
+### Remaining work
 
-| setting_type | Control                              |
-|--------------|--------------------------------------|
-| bool         | Toggle switch                        |
-| enum         | `<select>` dropdown from defn.options|
-| int          | Stepper or slider (min/max from bounds) |
-| float        | Slider with step                     |
-| str          | Text input                           |
+- [ ] **HTTPS setup** — Telegram requires HTTPS for Mini App URLs. Need a reverse
+  proxy (nginx/Caddy/cloudflare tunnel) in front of the aiohttp server.
+- [ ] **Deploy `webapp/index.html`** — Host on GitHub Pages or similar static host.
+- [ ] **Set `api_port`, `webapp_url`, `api_base_url`** in `config.ini`.
+- [ ] **End-to-end testing** — Open the Mini App in Telegram and verify the full flow.
+- [ ] **BotFather menu button** — Optionally set a persistent menu button via BotFather
+  that opens the Mini App directly (no `/webapp` command needed).
 
-## Data flow
+### Nice to have
 
-1. User taps menu button or inline "Open Settings" button → opens Mini App URL.
-2. Webapp reads `Telegram.WebApp.initDataUnsafe.user.id` to identify user.
-3. User interacts with native HTML controls grouped by setting category.
-4. Theming via `Telegram.WebApp.themeParams` (bg_color, text_color, etc.).
-5. On "Apply", call `Telegram.WebApp.sendData(JSON.stringify({...}))` (≤4096 bytes).
-6. Bot receives `message.web_app_data`, validates via `validate_setting()`, stores in `user_settings`.
-
-## Minimal version (one static HTML file)
-
-- ~200 lines HTML/JS/CSS, host on GitHub Pages or nginx.
-- Hardcode the ~10 most common settings with appropriate controls.
-- Uses `sendData()` — no server endpoint needed.
-
-## Fuller version (live state)
-
-- Add a small HTTP endpoint (aiohttp) returning current user overrides as JSON.
-- Webapp fetches on load so controls reflect current state.
-- Could expose full setting registry (all ~673 settings) with search/filter.
-
-## Other low-effort UX improvements to do first
-
-- **Set bot commands via BotFather** (zero code, instant discoverability).
-- **Scoped commands** — hide admin commands from regular users via `set_my_commands` in `post_init`.
-- **Numeric value picker buttons** — +/- inline keyboard for int/float settings.
-- **Search pagination** — Next/Prev buttons that edit the message in place.
-- **Pre-slice confirmation** — show active overrides with [Slice now] / [Edit settings] after STL upload.
+- Search pagination (virtual scroll for 673 settings)
+- Numeric slider for settings with known min/max bounds
+- Offline caching of registry data
+- Pre-slice confirmation via Mini App
+- Scoped bot commands (hide admin commands from regular users)
