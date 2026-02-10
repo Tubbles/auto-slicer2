@@ -398,10 +398,14 @@ function buildTextInput(s, value) {
 
 // --- Rendering ---
 
-function defaultValue(s) {
-  if (s.key in overrides) return String(overrides[s.key]);
+function baseDefault(s) {
   if (registry.defaults[s.key] != null) return String(registry.defaults[s.key]);
   return String(s.default_value);
+}
+
+function defaultValue(s) {
+  if (s.key in overrides) return String(overrides[s.key]);
+  return baseDefault(s);
 }
 
 function render() {
@@ -431,7 +435,8 @@ function buildSettingRow(s) {
   el.dataset.desc = (s.description || '').toLowerCase();
   el.dataset.category = s.category || 'Other';
 
-  const isModified = s.key in pendingChanges || s.key in overrides;
+  const pendingNull = s.key in pendingChanges && pendingChanges[s.key] === null;
+  const isModified = (s.key in pendingChanges && !pendingNull) || (s.key in overrides && !pendingNull);
   if (isModified) el.classList.add('modified');
 
   const info = document.createElement('div');
@@ -459,7 +464,10 @@ function buildSettingRow(s) {
     info.appendChild(desc);
   }
 
-  const val = s.key in pendingChanges ? pendingChanges[s.key] : defaultValue(s);
+  let val;
+  if (pendingNull) val = baseDefault(s);
+  else if (s.key in pendingChanges) val = pendingChanges[s.key];
+  else val = defaultValue(s);
   const control = buildControl(s, val);
 
   if (isModified) {
@@ -495,7 +503,11 @@ function onChange(key, value) {
 }
 
 function onReset(key) {
-  delete pendingChanges[key];
+  if (key in overrides) {
+    pendingChanges[key] = null;
+  } else {
+    delete pendingChanges[key];
+  }
   render();
   haptic();
 }
@@ -543,7 +555,7 @@ function applyFilter() {
       el.dataset.desc.includes(query);
     const matchesFilter = currentFilter === 'all' ||
       (currentFilter === 'common' && COMMON_KEYS.has(key)) ||
-      (currentFilter === 'modified' && (key in pendingChanges || key in overrides));
+      (currentFilter === 'modified' && ((key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null))));
 
     if (matchesSearch && matchesFilter) {
       el.classList.remove('hidden');
