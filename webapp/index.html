@@ -243,19 +243,36 @@
 
 <div id="settings-container">
   <div class="loading" id="loading">Loading settings...</div>
+  <pre id="debug" style="font-size:11px;color:var(--hint);white-space:pre-wrap;word-break:break-all;"></pre>
 </div>
 
 <div class="status" id="status"></div>
 
 <script>
+function dbg(msg) {
+  const el = document.getElementById('debug');
+  if (el) el.textContent += msg + '\n';
+  console.log(msg);
+}
+
+window.onerror = function(msg, src, line) { dbg('ERROR: ' + msg + ' at ' + src + ':' + line); };
+
+dbg('JS started');
+dbg('Telegram obj: ' + typeof window.Telegram);
+dbg('WebApp obj: ' + (window.Telegram ? typeof window.Telegram.WebApp : 'n/a'));
+
 const WebApp = window.Telegram && window.Telegram.WebApp;
 if (WebApp) {
-  try { WebApp.ready(); } catch(e) {}
-  try { WebApp.expand(); } catch(e) {}
+  try { WebApp.ready(); dbg('ready() ok'); } catch(e) { dbg('ready() err: ' + e); }
+  try { WebApp.expand(); dbg('expand() ok'); } catch(e) { dbg('expand() err: ' + e); }
+  dbg('initData length: ' + (WebApp.initData || '').length);
+} else {
+  dbg('No WebApp SDK');
 }
 
 const params = new URLSearchParams(location.search);
 const API_BASE = params.get('api') || '';
+dbg('API_BASE: ' + API_BASE);
 
 let registry = null;    // full registry response
 let overrides = {};      // user's current overrides (mutable)
@@ -620,13 +637,21 @@ function setStatus(msg, isError) {
 
 // --- Init ---
 async function init() {
+  dbg('init() called');
   if (!API_BASE) {
     document.getElementById('loading').textContent = 'Error: no API URL provided.';
+    dbg('No API_BASE, aborting');
     return;
   }
 
   try {
-    const [reg, settings] = await Promise.all([fetchRegistry(), fetchSettings()]);
+    dbg('Fetching registry...');
+    const regPromise = fetchRegistry();
+    dbg('Fetching settings...');
+    const settingsPromise = fetchSettings();
+    const [reg, settings] = await Promise.all([regPromise, settingsPromise]);
+    dbg('Registry: ' + (reg.settings || []).length + ' settings');
+    dbg('Overrides: ' + JSON.stringify(settings));
     registry = reg;
     overrides = settings;
     original = { ...settings };
@@ -634,7 +659,9 @@ async function init() {
     document.getElementById('loading').remove();
     renderPresets();
     render();
+    dbg('Render complete');
   } catch (e) {
+    dbg('init error: ' + e.message + ' ' + e.stack);
     document.getElementById('loading').textContent = 'Failed to load: ' + e.message;
   }
 }
