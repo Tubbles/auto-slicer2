@@ -7,6 +7,7 @@ Authentication is via Telegram initData HMAC validation.
 """
 
 import json
+import time
 
 from aiohttp import web
 
@@ -165,6 +166,11 @@ async def handle_post_settings(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_health(request: web.Request) -> web.Response:
+    """GET /api/health — simple health check, no auth required."""
+    return web.json_response({"status": "ok", "time": int(time.time())})
+
+
 @web.middleware
 async def cors_middleware(request: web.Request, handler) -> web.Response:
     """Add CORS headers for the Mini App frontend."""
@@ -180,13 +186,29 @@ async def cors_middleware(request: web.Request, handler) -> web.Response:
     return response
 
 
+@web.middleware
+async def logging_middleware(request: web.Request, handler) -> web.Response:
+    """Log all incoming requests."""
+    start = time.time()
+    try:
+        response = await handler(request)
+        elapsed = (time.time() - start) * 1000
+        print(f"[API] {request.method} {request.path} → {response.status} ({elapsed:.0f}ms)")
+        return response
+    except Exception as e:
+        elapsed = (time.time() - start) * 1000
+        print(f"[API] {request.method} {request.path} → ERROR: {e} ({elapsed:.0f}ms)")
+        raise
+
+
 def create_web_app(config: Config, user_settings: dict, cors_origin: str = "*") -> web.Application:
     """Create and configure the aiohttp web application."""
-    app = web.Application(middlewares=[cors_middleware])
+    app = web.Application(middlewares=[logging_middleware, cors_middleware])
     app["config"] = config
     app["user_settings"] = user_settings
     app["cors_origin"] = cors_origin
 
+    app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/registry", handle_registry)
     app.router.add_get("/api/settings", handle_get_settings)
     app.router.add_post("/api/settings", handle_post_settings)

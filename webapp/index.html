@@ -230,7 +230,21 @@
 </head>
 <body>
 
-<div class="search-bar">
+<pre id="debug" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#000;color:#0f0;font-size:12px;padding:8px;margin:0;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:monospace;"></pre>
+<script>
+// Inline debug bootstrap — runs before anything else
+function dbg(msg) {
+  var el = document.getElementById('debug');
+  if (el) el.textContent += msg + '\n';
+  console.log('[dbg] ' + msg);
+}
+window.onerror = function(msg, src, line) { dbg('JS ERROR: ' + msg + ' at ' + src + ':' + line); };
+dbg('page loaded at ' + new Date().toISOString());
+dbg('userAgent: ' + navigator.userAgent);
+dbg('location: ' + location.href);
+</script>
+
+<div class="search-bar" style="margin-top:42vh;">
   <input type="text" id="search" placeholder="Search settings..." autocomplete="off">
 </div>
 
@@ -243,21 +257,12 @@
 
 <div id="settings-container">
   <div class="loading" id="loading">Loading settings...</div>
-  <pre id="debug" style="font-size:11px;color:var(--hint);white-space:pre-wrap;word-break:break-all;"></pre>
 </div>
 
 <div class="status" id="status"></div>
 
 <script>
-function dbg(msg) {
-  const el = document.getElementById('debug');
-  if (el) el.textContent += msg + '\n';
-  console.log(msg);
-}
-
-window.onerror = function(msg, src, line) { dbg('ERROR: ' + msg + ' at ' + src + ':' + line); };
-
-dbg('JS started');
+dbg('main script started');
 dbg('Telegram obj: ' + typeof window.Telegram);
 dbg('WebApp obj: ' + (window.Telegram ? typeof window.Telegram.WebApp : 'n/a'));
 
