@@ -97,8 +97,16 @@ async def post_init(app) -> None:
         except Exception as e:
             print(f"Startup notification failed: {e}")
 
-    # Clear any previously-set menu button (e.g. the old "four squares" icon)
-    await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+    # Clear any previously-set menu button (bot-wide default + per-chat)
+    default_btn = MenuButtonDefault()
+    await app.bot.set_chat_menu_button(menu_button=default_btn)
+    if config.notify_chat_id:
+        try:
+            await app.bot.set_chat_menu_button(
+                chat_id=config.notify_chat_id, menu_button=default_btn,
+            )
+        except Exception:
+            pass
 
     # Start HTTP API server if configured
     if config.api_port > 0:
