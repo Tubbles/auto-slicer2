@@ -112,7 +112,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /webapp command — inline button fallback for group chats."""
+    """Handle /webapp command — open settings Mini App."""
     config: Config = context.bot_data["config"]
     if not is_allowed(config, update.effective_user.id, update.effective_chat.id):
         return
@@ -122,9 +122,12 @@ async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     url = f"{config.webapp_url}?api={config.api_base_url}"
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url)),
-    ]])
+    # WebAppInfo buttons only work in private chats; use a plain URL in groups
+    if update.effective_chat.type == "private":
+        button = InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url))
+    else:
+        button = InlineKeyboardButton("Open Settings", url=url)
+    keyboard = InlineKeyboardMarkup([[button]])
     await update.message.reply_text("Tap to open settings:", reply_markup=keyboard)
 
 
