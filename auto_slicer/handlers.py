@@ -477,7 +477,10 @@ async def post_init(app) -> None:
     if not chat_id:
         chat_id = config.notify_chat_id
     if chat_id:
-        await app.bot.send_message(chat_id, "Auto-Slicer Bot is online!")
+        try:
+            await app.bot.send_message(chat_id, "Auto-Slicer Bot is online!")
+        except Exception as e:
+            print(f"Startup notification failed: {e}")
 
     # Start HTTP API server if configured
     if config.api_port > 0:
