@@ -75,6 +75,17 @@
   }
   .preset-btn:active { opacity: 0.7; }
 
+  .clear-all-btn {
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: 1px solid #e53935;
+    background: transparent;
+    color: #e53935;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .clear-all-btn:active { opacity: 0.7; }
+
   .category-header {
     font-size: 13px;
     font-weight: 600;
@@ -287,6 +298,14 @@ async function postSettings(payload) {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+  return r.json();
+}
+
+async function deleteSettings() {
+  const r = await fetch(API_BASE + '/api/settings', {
+    method: 'DELETE',
+    headers: authHeaders(),
   });
   return r.json();
 }
@@ -561,6 +580,32 @@ function renderPresets() {
     });
     container.appendChild(btn);
   }
+
+  renderClearAllBtn(container);
+}
+
+function renderClearAllBtn(container) {
+  const hasOverrides = Object.keys(overrides).length > 0 || Object.keys(pendingChanges).length > 0;
+  if (!hasOverrides) return;
+
+  const btn = document.createElement('button');
+  btn.className = 'clear-all-btn';
+  btn.textContent = 'Clear All';
+  btn.title = 'Remove all overrides';
+  btn.addEventListener('click', async () => {
+    try {
+      await deleteSettings();
+      overrides = {};
+      pendingChanges = {};
+      render();
+      renderPresets();
+      haptic();
+      setStatus('All overrides cleared');
+    } catch (e) {
+      setStatus('Failed to clear: ' + e.message, true);
+    }
+  });
+  container.appendChild(btn);
 }
 
 // --- Apply ---

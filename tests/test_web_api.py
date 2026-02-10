@@ -1,12 +1,20 @@
 """Tests for web API pure helpers."""
 
+import hashlib
+import hmac
+import time
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
+from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer
 
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry
 from auto_slicer.config import Config
-from auto_slicer.web_api import _setting_to_dict, _build_registry_response, _validate_overrides
+from auto_slicer.web_api import (
+    _setting_to_dict, _build_registry_response, _validate_overrides,
+    create_web_app,
+)
 
 
 def _make_defn(**kwargs) -> SettingDefinition:
@@ -222,3 +230,73 @@ class TestValidateOverrides:
         assert result["applied"] == {}
         assert result["errors"] == {}
         assert result["warnings"] == {}
+
+
+# --- DELETE /api/settings integration tests ---
+
+TOKEN = "test:token"
+
+
+def _make_init_data(user_id: int) -> str:
+    """Build a valid Telegram initData string for testing."""
+    auth_date = str(int(time.time()))
+    user_json = f'{{"id":{user_id},"first_name":"Test"}}'
+    params = {"user": user_json, "auth_date": auth_date}
+    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+    secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    params["hash"] = h
+    return urlencode(params)
+
+
+@pytest.fixture
+def app_with_user():
+    """Create a test app with one user's overrides pre-populated."""
+    config = _make_config()
+    user_settings = {42: {"test_key": "5.0"}}
+    saved = []
+    save_fn = lambda: saved.append(dict(user_settings))
+    app = create_web_app(config, user_settings, save_fn=save_fn)
+    return app, user_settings, saved
+
+
+class TestDeleteSettings:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user, aiohttp_client):
+        self.app, self.user_settings, self.saved = app_with_user
+        self._aiohttp_client = aiohttp_client
+
+    async def _client(self):
+        return await self._aiohttp_client(self.app)
+
+    @pytest.mark.asyncio
+    async def test_clears_overrides(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        resp = await client.delete("/api/settings", headers={"Authorization": auth})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data == {"overrides": {}}
+        assert 42 not in self.user_settings
+
+    @pytest.mark.asyncio
+    async def test_calls_save_fn(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        await client.delete("/api/settings", headers={"Authorization": auth})
+        assert len(self.saved) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_auth_returns_401(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.delete("/api/settings")
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_user_ok(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(999)
+        resp = await client.delete("/api/settings", headers={"Authorization": auth})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data == {"overrides": {}}

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,8 +11,26 @@ from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .slicer import slice_file
 
 
+SETTINGS_FILE = Path(__file__).parent.parent / "user_settings.json"
+
+
+def load_user_settings(path: Path) -> dict[int, dict]:
+    """Load per-user settings overrides from a JSON file."""
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    return {int(k): v for k, v in data.items()}
+
+
+def save_user_settings(path: Path, settings: dict[int, dict]) -> None:
+    """Atomically write per-user settings overrides to a JSON file."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(settings, indent=2))
+    tmp.rename(path)
+
+
 # Per-user settings overrides, keyed by Telegram user ID
-user_settings: dict[int, dict] = {}
+user_settings: dict[int, dict] = load_user_settings(SETTINGS_FILE)
 
 
 HELP_TEXT = """Auto-Slicer Bot
@@ -113,7 +132,8 @@ async def post_init(app) -> None:
         from aiohttp import web as aio_web
         from .web_api import create_web_app
 
-        web_app = create_web_app(config, user_settings)
+        save_fn = lambda: save_user_settings(SETTINGS_FILE, user_settings)
+        web_app = create_web_app(config, user_settings, save_fn=save_fn)
         runner = aio_web.AppRunner(web_app)
         await runner.setup()
         site = aio_web.TCPSite(runner, "0.0.0.0", config.api_port)

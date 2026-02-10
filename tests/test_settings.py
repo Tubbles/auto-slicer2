@@ -1,11 +1,13 @@
 """Tests for settings registry, matcher, and validator."""
 
 import configparser
+import json
 from pathlib import Path
 
 import pytest
 
 from auto_slicer.config import load_config, _parse_allowed_users, is_allowed, Config
+from auto_slicer.handlers import load_user_settings, save_user_settings
 from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
     _flatten_settings, _apply_overrides, _build_indexes,
@@ -450,3 +452,37 @@ class TestConfigFunctions:
         )
         assert is_allowed(cfg, 42) is True
         assert is_allowed(cfg, 99) is False
+
+
+# --- Persistence tests ---
+
+class TestUserSettingsPersistence:
+    def test_round_trip(self, tmp_path):
+        path = tmp_path / "settings.json"
+        data = {123: {"layer_height": "0.3"}, 456: {"speed_print": "60"}}
+        save_user_settings(path, data)
+        loaded = load_user_settings(path)
+        assert loaded == data
+
+    def test_load_missing_file(self, tmp_path):
+        path = tmp_path / "nonexistent.json"
+        assert load_user_settings(path) == {}
+
+    def test_keys_converted_to_int(self, tmp_path):
+        path = tmp_path / "settings.json"
+        path.write_text(json.dumps({"99": {"key": "val"}}))
+        loaded = load_user_settings(path)
+        assert 99 in loaded
+        assert "99" not in loaded
+
+    def test_empty_dict(self, tmp_path):
+        path = tmp_path / "settings.json"
+        save_user_settings(path, {})
+        assert load_user_settings(path) == {}
+
+    def test_atomic_write(self, tmp_path):
+        path = tmp_path / "settings.json"
+        save_user_settings(path, {1: {"a": "b"}})
+        # tmp file should not remain
+        assert not (tmp_path / "settings.tmp").exists()
+        assert path.exists()

@@ -163,7 +163,27 @@ async def handle_post_settings(request: web.Request) -> web.Response:
     if not user_settings[user_id]:
         user_settings.pop(user_id, None)
 
+    save_fn = request.app.get("save_fn")
+    if save_fn:
+        save_fn()
+
     return web.json_response(result)
+
+
+async def handle_delete_settings(request: web.Request) -> web.Response:
+    """DELETE /api/settings — clear all overrides for the authenticated user."""
+    user_id, error = _extract_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": error}, status=401)
+
+    user_settings: dict = request.app["user_settings"]
+    user_settings.pop(user_id, None)
+
+    save_fn = request.app.get("save_fn")
+    if save_fn:
+        save_fn()
+
+    return web.json_response({"overrides": {}})
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -181,7 +201,7 @@ async def cors_middleware(request: web.Request, handler) -> web.Response:
 
     allowed_origin = request.app.get("cors_origin", "*")
     response.headers["Access-Control-Allow-Origin"] = allowed_origin
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
     return response
 
@@ -201,16 +221,22 @@ async def logging_middleware(request: web.Request, handler) -> web.Response:
         raise
 
 
-def create_web_app(config: Config, user_settings: dict, cors_origin: str = "*") -> web.Application:
+def create_web_app(
+    config: Config, user_settings: dict,
+    cors_origin: str = "*", save_fn=None,
+) -> web.Application:
     """Create and configure the aiohttp web application."""
     app = web.Application(middlewares=[logging_middleware, cors_middleware])
     app["config"] = config
     app["user_settings"] = user_settings
     app["cors_origin"] = cors_origin
+    if save_fn:
+        app["save_fn"] = save_fn
 
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/registry", handle_registry)
     app.router.add_get("/api/settings", handle_get_settings)
     app.router.add_post("/api/settings", handle_post_settings)
+    app.router.add_delete("/api/settings", handle_delete_settings)
 
     return app
