@@ -25,11 +25,17 @@ def build_cura_command(
         "-d", str(def_dir),
         "-d", str(extruders_dir),
         "-j", printer_def,
-        "-l", str(stl_path),
-        "-o", str(gcode_path),
     ]
+
     for key, val in settings.items():
         cmd.extend(["-s", f"{key}={val}"])
+
+    cmd.extend(
+        [
+            "-l", str(stl_path),
+            "-o", str(gcode_path),
+        ]
+    )
     return cmd
 
 
