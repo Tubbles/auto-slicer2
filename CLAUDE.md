@@ -23,6 +23,7 @@ python auto-slicer2.py -c /path/to/config.ini
 
 - Python 3.10+ (uses `X | Y` union syntax)
 - `python-telegram-bot` library
+- `aiohttp` library (HTTP API for Mini App)
 - CuraEngine binary (path configured in config.ini)
 - Cura printer definitions directory
 
@@ -51,17 +52,18 @@ auto_slicer/
   slicer.py                # slice_file()
   handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
-  settings_match.py        # SettingsMatcher (fuzzy/natural language resolution)
-  settings_validate.py     # SettingsValidator (type + bounds checking)
-  presets.py               # PresetManager + BUILTIN_PRESETS
+  settings_match.py        # resolve_setting() fuzzy/natural language resolution
+  settings_validate.py     # validate() type + bounds checking
+  presets.py               # BUILTIN_PRESETS + load_presets()
   web_auth.py              # Telegram initData HMAC-SHA256 validation
   web_api.py               # aiohttp HTTP API for Mini App
 auto-slicer2.py            # thin entry point (argparse, app wiring)
 webapp/
   index.html               # Mini App frontend (deployed to GitHub Pages)
 tests/
-  test_settings.py         # tests for registry, matcher, validator, presets
-  test_web_api.py          # tests for web API pure helpers
+  test_settings.py         # tests for registry, matcher, validator, presets, persistence
+  test_slicer.py           # tests for slicer command building and settings merge
+  test_web_api.py          # tests for web API helpers and endpoints
   test_web_auth.py         # tests for Telegram initData validation
 ```
 
@@ -71,28 +73,29 @@ tests/
 
 **SettingsRegistry** (`settings_registry.py`): Loads CuraEngine's fdmprinter.def.json, flattens the nested settings tree, follows the inherits chain (e.g. creality_ender3 → creality_base → fdmprinter), and builds label→key indexes.
 
-**SettingsMatcher** (`settings_match.py`): Resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib). Used by the web API.
+**Settings matching** (`settings_match.py`): `resolve_setting()` resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib).
 
-**SettingsValidator** (`settings_validate.py`): Type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning. Used by the web API.
+**Settings validation** (`settings_validate.py`): `validate()` type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
 
-**PresetManager** (`presets.py`): Built-in presets (draft/standard/fine/strong) and optional custom presets from presets.json.
+**Presets** (`presets.py`): `BUILTIN_PRESETS` dict (draft/standard/fine/strong) and `load_presets()` which merges in optional custom presets from presets.json.
 
-**Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID (in-memory, resets on restart). Modified via the Mini App web API.
+**Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID. File-backed via `user_settings.json` — persisted on every mutation, loaded on startup. Modified via the Mini App web API.
 
 ### Workflow
 
 1. User configures settings via the Mini App (webapp)
 2. User sends STL file as document
-4. Bot downloads to temp directory
-5. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
-6. On success: archives STL+gcode to timestamped subfolder, notifies user with path
-7. On failure: moves STL to `archive/errors/`, sends error message
+3. Bot downloads to temp directory
+4. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
+5. On success: archives STL+gcode to timestamped subfolder, notifies user with path
+6. On failure: moves STL to `archive/errors/`, sends error message
 
 ## Configuration (config.ini)
 
 - `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition
 - `[DEFAULT_SETTINGS]`: CuraEngine setting key-value pairs
-- `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = nobody), api_port, webapp_url, api_base_url
+- `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = nobody), notify_chat_id, api_port, webapp_url, api_base_url
+- `[BOUNDS_OVERRIDES]`: Override hard/warning bounds on specific settings (e.g. `retraction_amount.maximum_value = 4`)
 
 ## Git Workflow
 
