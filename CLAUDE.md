@@ -106,6 +106,7 @@ tests/
 - Include gotchas, caveats, or non-obvious side effects in the commit message body.
 - Never add "Co-Authored-By" lines or email addresses to commit messages.
 - Push freely without asking, but never use `git push --force` or any force-push variant.
+- **Keep all documentation up to date.** When changing behavior, update CLAUDE.md and code comments in the same commit. Stale docs are worse than no docs.
 
 ## Systemd User Service
 
