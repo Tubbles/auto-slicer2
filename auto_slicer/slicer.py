@@ -32,6 +32,13 @@ def resolve_settings(
     resolved = {k: str(v) for k, v in result.values.items()}
     # Layer pinned values on top (they always win)
     resolved.update(pinned)
+
+    # Drop values that match the definition default — no need to send them
+    for key in list(resolved):
+        defn = registry.get(key)
+        if defn and str(defn.default_value) == resolved[key] and key not in overrides:
+            del resolved[key]
+
     return resolved
 
 

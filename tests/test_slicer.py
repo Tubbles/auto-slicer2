@@ -127,3 +127,20 @@ class TestResolveSettings:
         result = resolve_settings(reg, {}, {})
         assert result["y"] == "3.0"
         assert result["z"] == "6.0"
+
+    def test_skips_values_matching_default(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=5.0),
+            _make_setting("b", default_value=10.0, expr="a * 2"),
+        ])
+        # b computes to 10.0 which matches its default — should be omitted
+        result = resolve_settings(reg, {}, {})
+        assert "b" not in result
+
+    def test_keeps_user_override_even_if_matches_default(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=5.0),
+        ])
+        # User explicitly sets a=5.0 (same as default) — should be kept
+        result = resolve_settings(reg, {}, {"a": "5.0"})
+        assert result["a"] == "5.0"
