@@ -114,17 +114,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .setting-meta {
-    font-size: 11px;
-    color: var(--hint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .setting-meta em {
-    font-style: italic;
-    color: var(--link);
-  }
   .setting-desc {
     font-size: 12px;
     color: var(--hint);
@@ -132,7 +121,21 @@
     display: none;
   }
   .setting-desc.show { display: block; }
+  .setting-detail {
+    font-size: 11px;
+    color: var(--hint);
+    margin-top: 4px;
+    font-family: monospace;
+  }
   .setting-control { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
+
+  .computed-badge {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--link);
+    flex-shrink: 0;
+    line-height: 1;
+  }
 
   .toggle {
     position: relative;
@@ -389,22 +392,34 @@ async function recompute() {
 function updateComputedDisplay() {
   document.querySelectorAll('.setting').forEach(el => {
     const key = el.dataset.key;
-    const meta = el.querySelector('.setting-meta');
-    if (!meta) return;
-
     const s = registry.settings.find(x => x.key === key);
     if (!s) return;
 
-    const unit = s.unit ? ` ${s.unit}` : '';
-    const revCount = (reverseDeps[key] || []).length;
-    const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
-
     const isModified = (key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null));
+    const isComputed = !isModified && key in computedValues;
 
-    if (!isModified && key in computedValues) {
-      meta.innerHTML = `${s.key} [${s.type}] computed: <em>${computedValues[key]}</em>${unit}${affectsStr}`;
-    } else {
-      meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}`;
+    // Update detail line inside expandable desc
+    const detail = el.querySelector('.setting-detail');
+    if (detail) {
+      const unit = s.unit ? ` ${s.unit}` : '';
+      const revCount = (reverseDeps[key] || []).length;
+      const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
+      const computedStr = isComputed ? ` | computed: ${computedValues[key]}` : '';
+      detail.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}${computedStr}`;
+    }
+
+    // Toggle f(x) badge
+    const control = el.querySelector('.setting-control');
+    if (!control) return;
+    const existing = control.querySelector('.computed-badge');
+    if (isComputed && !existing) {
+      const badge = document.createElement('span');
+      badge.className = 'computed-badge';
+      badge.textContent = 'f(x)';
+      badge.title = 'Computed from other settings';
+      control.insertBefore(badge, control.firstChild);
+    } else if (!isComputed && existing) {
+      existing.remove();
     }
   });
 }
@@ -560,32 +575,39 @@ function buildSettingRow(s) {
   label.className = 'setting-label';
   label.textContent = s.label;
 
-  const meta = document.createElement('div');
-  meta.className = 'setting-meta';
+  info.appendChild(label);
+
+  // Expandable details: description + technical info
+  const desc = document.createElement('div');
+  desc.className = 'setting-desc';
+  if (s.description) {
+    desc.textContent = s.description;
+  }
+  const detail = document.createElement('div');
+  detail.className = 'setting-detail';
   const unit = s.unit ? ` ${s.unit}` : '';
   const revCount = (reverseDeps[s.key] || []).length;
   const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
-
-  if (!isModified && s.key in computedValues) {
-    meta.innerHTML = `${s.key} [${s.type}] computed: <em>${computedValues[s.key]}</em>${unit}${affectsStr}`;
-  } else {
-    meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}`;
-  }
-
-  info.append(label, meta);
-
-  if (s.description) {
-    const desc = document.createElement('div');
-    desc.className = 'setting-desc';
-    desc.textContent = s.description;
-    info.appendChild(desc);
-  }
+  const computedStr = (!isModified && s.key in computedValues) ? ` | computed: ${computedValues[s.key]}` : '';
+  detail.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}${computedStr}`;
+  desc.appendChild(detail);
+  info.appendChild(desc);
 
   let val;
   if (pendingNull) val = baseDefault(s);
   else if (s.key in pendingChanges) val = pendingChanges[s.key];
   else val = effectiveValue(s);
   const control = buildControl(s, val);
+
+  // Show f(x) badge for computed (derived) settings
+  const isComputed = !isModified && s.key in computedValues;
+  if (isComputed) {
+    const badge = document.createElement('span');
+    badge.className = 'computed-badge';
+    badge.textContent = 'f(x)';
+    badge.title = 'Computed from other settings';
+    control.insertBefore(badge, control.firstChild);
+  }
 
   if (isModified) {
     control.appendChild(buildResetBtn(s.key));
