@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from auto_slicer.config import load_config, _parse_allowed_users, is_allowed, Config
-from auto_slicer.handlers import load_user_settings, save_user_settings
+from auto_slicer.handlers import load_user_settings, save_user_settings, load_starred_keys, save_starred_keys
 from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
     _flatten_settings, _apply_overrides, _build_indexes,
@@ -486,3 +486,40 @@ class TestUserSettingsPersistence:
         # tmp file should not remain
         assert not (tmp_path / "settings.tmp").exists()
         assert path.exists()
+
+
+class TestStarredKeysPersistence:
+    def test_round_trip(self, tmp_path):
+        path = tmp_path / "starred.json"
+        default_path = tmp_path / "starred.default.json"
+        keys = {"layer_height", "speed_print", "infill_sparse_density"}
+        save_starred_keys(path, keys)
+        loaded = load_starred_keys(path, default_path)
+        assert loaded == keys
+
+    def test_loads_from_default_when_missing(self, tmp_path):
+        path = tmp_path / "starred.json"
+        default_path = tmp_path / "starred.default.json"
+        default_path.write_text(json.dumps(["layer_height", "speed_print"]))
+        loaded = load_starred_keys(path, default_path)
+        assert loaded == {"layer_height", "speed_print"}
+        # Runtime file should now exist
+        assert path.exists()
+
+    def test_empty_when_both_missing(self, tmp_path):
+        path = tmp_path / "starred.json"
+        default_path = tmp_path / "starred.default.json"
+        loaded = load_starred_keys(path, default_path)
+        assert loaded == set()
+
+    def test_atomic_write(self, tmp_path):
+        path = tmp_path / "starred.json"
+        save_starred_keys(path, {"a", "b"})
+        assert not (tmp_path / "starred.tmp").exists()
+        assert path.exists()
+
+    def test_saved_sorted(self, tmp_path):
+        path = tmp_path / "starred.json"
+        save_starred_keys(path, {"z_key", "a_key", "m_key"})
+        data = json.loads(path.read_text())
+        assert data == ["a_key", "m_key", "z_key"]

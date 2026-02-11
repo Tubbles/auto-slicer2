@@ -58,6 +58,7 @@ auto_slicer/
   web_auth.py              # Telegram initData HMAC-SHA256 validation
   web_api.py               # aiohttp HTTP API for Mini App
 auto-slicer2.py            # thin entry point (argparse, app wiring)
+starred_keys.default.json  # default starred settings template (checked in)
 webapp/
   index.html               # Mini App frontend (deployed to GitHub Pages)
 tests/
@@ -80,6 +81,8 @@ tests/
 **Presets** (`presets.py`): `BUILTIN_PRESETS` dict (draft/standard/fine/strong) and `load_presets()` which merges in optional custom presets from presets.json.
 
 **Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID. File-backed via `user_settings.json` — persisted on every mutation, loaded on startup. Modified via the Mini App web API.
+
+**Starred keys**: Globally shared set of "favorite" setting keys, shown in the Mini App's "Starred" tab. File-backed via `starred_keys.json` (gitignored, created from `starred_keys.default.json` template on first run). Any authenticated user can star/unstar settings via `POST /api/starred`.
 
 ### Workflow
 

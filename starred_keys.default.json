@@ -1,0 +1,20 @@
+[
+  "adhesion_type",
+  "bottom_layers",
+  "cool_fan_speed",
+  "infill_pattern",
+  "infill_sparse_density",
+  "layer_height",
+  "material_bed_temperature",
+  "material_print_temperature",
+  "retraction_amount",
+  "retraction_enable",
+  "retraction_speed",
+  "speed_print",
+  "speed_travel",
+  "support_angle",
+  "support_enable",
+  "support_type",
+  "top_layers",
+  "wall_line_count"
+]

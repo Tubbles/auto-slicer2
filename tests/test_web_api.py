@@ -256,14 +256,20 @@ def app_with_user():
     user_settings = {42: {"test_key": "5.0"}}
     saved = []
     save_fn = lambda: saved.append(dict(user_settings))
-    app = create_web_app(config, user_settings, save_fn=save_fn)
-    return app, user_settings, saved
+    starred = {"layer_height", "speed_print"}
+    starred_saved = []
+    save_starred_fn = lambda: starred_saved.append(set(starred))
+    app = create_web_app(
+        config, user_settings, save_fn=save_fn,
+        starred_keys=starred, save_starred_fn=save_starred_fn,
+    )
+    return app, user_settings, saved, starred, starred_saved
 
 
 class TestDeleteSettings:
     @pytest.fixture(autouse=True)
     def _setup(self, app_with_user, aiohttp_client):
-        self.app, self.user_settings, self.saved = app_with_user
+        self.app, self.user_settings, self.saved, _, _ = app_with_user
         self._aiohttp_client = aiohttp_client
 
     async def _client(self):
@@ -300,3 +306,100 @@ class TestDeleteSettings:
         assert resp.status == 200
         data = await resp.json()
         assert data == {"overrides": {}}
+
+
+class TestGetStarred:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, _, _, self.starred, _ = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_returns_keys(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/starred")
+        assert resp.status == 200
+        data = await resp.json()
+        assert set(data["keys"]) == {"layer_height", "speed_print"}
+
+    @pytest.mark.asyncio
+    async def test_returns_sorted(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/starred")
+        data = await resp.json()
+        assert data["keys"] == sorted(data["keys"])
+
+    @pytest.mark.asyncio
+    async def test_no_auth_required(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/starred")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_starred(self, aiohttp_client):
+        self.starred.clear()
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/starred")
+        data = await resp.json()
+        assert data["keys"] == []
+
+
+class TestPostStarred:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, _, _, self.starred, self.starred_saved = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_add_keys(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        resp = await client.post(
+            "/api/starred",
+            json={"add": ["infill_sparse_density"]},
+            headers={"Authorization": auth},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        assert "infill_sparse_density" in data["keys"]
+        assert "layer_height" in data["keys"]
+
+    @pytest.mark.asyncio
+    async def test_remove_keys(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        resp = await client.post(
+            "/api/starred",
+            json={"remove": ["layer_height"]},
+            headers={"Authorization": auth},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        assert "layer_height" not in data["keys"]
+        assert "speed_print" in data["keys"]
+
+    @pytest.mark.asyncio
+    async def test_requires_auth(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/starred", json={"add": ["foo"]})
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_calls_save_fn(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        await client.post(
+            "/api/starred",
+            json={"add": ["new_key"]},
+            headers={"Authorization": auth},
+        )
+        assert len(self.starred_saved) == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_json(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        auth = "tma " + _make_init_data(42)
+        resp = await client.post(
+            "/api/starred",
+            data="not json",
+            headers={"Authorization": auth, "Content-Type": "application/json"},
+        )
+        assert resp.status == 400

@@ -12,6 +12,8 @@ from .slicer import slice_file
 
 
 SETTINGS_FILE = Path(__file__).parent.parent / "user_settings.json"
+STARRED_FILE = Path(__file__).parent.parent / "starred_keys.json"
+STARRED_DEFAULT_FILE = Path(__file__).parent.parent / "starred_keys.default.json"
 
 
 def load_user_settings(path: Path) -> dict[int, dict]:
@@ -29,8 +31,33 @@ def save_user_settings(path: Path, settings: dict[int, dict]) -> None:
     tmp.rename(path)
 
 
+def load_starred_keys(path: Path, default_path: Path) -> set[str]:
+    """Load starred setting keys from a JSON file.
+
+    If the runtime file is missing, copies from the default template.
+    Returns an empty set if neither file exists.
+    """
+    if not path.exists():
+        if default_path.exists():
+            data = json.loads(default_path.read_text())
+            save_starred_keys(path, set(data))
+            return set(data)
+        return set()
+    return set(json.loads(path.read_text()))
+
+
+def save_starred_keys(path: Path, keys: set[str]) -> None:
+    """Atomically write starred keys to a JSON file."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(sorted(keys), indent=2))
+    tmp.rename(path)
+
+
 # Per-user settings overrides, keyed by Telegram user ID
 user_settings: dict[int, dict] = load_user_settings(SETTINGS_FILE)
+
+# Globally shared starred keys
+starred_keys: set[str] = load_starred_keys(STARRED_FILE, STARRED_DEFAULT_FILE)
 
 
 HELP_TEXT = """Auto-Slicer Bot
@@ -133,7 +160,11 @@ async def post_init(app) -> None:
         from .web_api import create_web_app
 
         save_fn = lambda: save_user_settings(SETTINGS_FILE, user_settings)
-        web_app = create_web_app(config, user_settings, save_fn=save_fn)
+        save_starred_fn = lambda: save_starred_keys(STARRED_FILE, starred_keys)
+        web_app = create_web_app(
+            config, user_settings, save_fn=save_fn,
+            starred_keys=starred_keys, save_starred_fn=save_starred_fn,
+        )
         runner = aio_web.AppRunner(web_app)
         await runner.setup()
         site = aio_web.TCPSite(runner, "0.0.0.0", config.api_port)

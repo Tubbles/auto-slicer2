@@ -3,4 +3,6 @@
 /config.ini
 /.claude/settings.local.json
 /.reload_chat_id
+/starred_keys.json
+/user_settings.json
 __pycache__/

@@ -208,6 +208,17 @@
   }
   .reset-btn:hover { color: var(--text); }
 
+  .star-btn {
+    width: 28px; height: 28px;
+    border: none; background: transparent;
+    color: var(--hint);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
   .status {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -234,7 +245,7 @@
 </div>
 
 <div class="tabs">
-  <button class="tab active" data-filter="common">Common</button>
+  <button class="tab active" data-filter="starred">Starred</button>
   <button class="tab" data-filter="modified">Modified</button>
   <button class="tab" data-filter="all">All</button>
 </div>
@@ -262,16 +273,7 @@ let overrides = {};
 let original = {};
 let pendingChanges = {};
 
-const COMMON_KEYS = new Set([
-  'layer_height', 'wall_line_count', 'top_layers', 'bottom_layers',
-  'infill_sparse_density', 'infill_pattern',
-  'support_enable', 'support_type', 'support_angle',
-  'adhesion_type',
-  'speed_print', 'speed_travel',
-  'material_print_temperature', 'material_bed_temperature',
-  'retraction_enable', 'retraction_amount', 'retraction_speed',
-  'cool_fan_speed',
-]);
+let starredKeys = new Set();
 
 // --- Auth ---
 
@@ -308,6 +310,22 @@ async function deleteSettings() {
     headers: authHeaders(),
   });
   return r.json();
+}
+
+async function fetchStarred() {
+  const r = await fetch(API_BASE + '/api/starred');
+  const data = await r.json();
+  return new Set(data.keys || []);
+}
+
+async function postStarred(add, remove) {
+  const r = await fetch(API_BASE + '/api/starred', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ add, remove }),
+  });
+  const data = await r.json();
+  return new Set(data.keys || []);
 }
 
 // --- Controls ---
@@ -474,7 +492,25 @@ function buildSettingRow(s) {
     control.appendChild(buildResetBtn(s.key));
   }
 
-  el.append(info, control);
+  const star = document.createElement('button');
+  star.className = 'star-btn';
+  star.textContent = starredKeys.has(s.key) ? '\u2605' : '\u2606';
+  star.addEventListener('click', async () => {
+    const isStarred = starredKeys.has(s.key);
+    try {
+      starredKeys = await postStarred(
+        isStarred ? [] : [s.key],
+        isStarred ? [s.key] : [],
+      );
+      star.textContent = starredKeys.has(s.key) ? '\u2605' : '\u2606';
+      if (currentFilter === 'starred') applyFilter();
+      haptic();
+    } catch (e) {
+      setStatus('Failed to update star: ' + e.message, true);
+    }
+  });
+
+  el.append(info, star, control);
   return el;
 }
 
@@ -529,7 +565,7 @@ function updateMainButton() {
 
 // --- Search & Filter ---
 
-let currentFilter = 'common';
+let currentFilter = 'starred';
 
 document.getElementById('search').addEventListener('input', applyFilter);
 document.querySelectorAll('.tab').forEach(tab => {
@@ -554,7 +590,7 @@ function applyFilter() {
       el.dataset.label.includes(query) ||
       el.dataset.desc.includes(query);
     const matchesFilter = currentFilter === 'all' ||
-      (currentFilter === 'common' && COMMON_KEYS.has(key)) ||
+      (currentFilter === 'starred' && starredKeys.has(key)) ||
       (currentFilter === 'modified' && ((key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null))));
 
     if (matchesSearch && matchesFilter) {
@@ -687,10 +723,13 @@ async function init() {
   }
 
   try {
-    const [reg, settings] = await Promise.all([fetchRegistry(), fetchSettings()]);
+    const [reg, settings, starred] = await Promise.all([
+      fetchRegistry(), fetchSettings(), fetchStarred(),
+    ]);
     registry = reg;
     overrides = settings;
     original = { ...settings };
+    starredKeys = starred;
 
     document.getElementById('loading').remove();
     renderPresets();

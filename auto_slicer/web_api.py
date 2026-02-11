@@ -186,6 +186,37 @@ async def handle_delete_settings(request: web.Request) -> web.Response:
     return web.json_response({"overrides": {}})
 
 
+async def handle_get_starred(request: web.Request) -> web.Response:
+    """GET /api/starred — return the current starred keys (no auth)."""
+    starred: set = request.app.get("starred_keys", set())
+    return web.json_response({"keys": sorted(starred)})
+
+
+async def handle_post_starred(request: web.Request) -> web.Response:
+    """POST /api/starred — add/remove starred keys (auth required).
+
+    Body: {"add": [...], "remove": [...]}
+    """
+    user_id, error = _extract_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": error}, status=401)
+
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+
+    starred: set = request.app.get("starred_keys", set())
+    starred.update(body.get("add", []))
+    starred.difference_update(body.get("remove", []))
+
+    save_fn = request.app.get("save_starred_fn")
+    if save_fn:
+        save_fn()
+
+    return web.json_response({"keys": sorted(starred)})
+
+
 async def handle_health(request: web.Request) -> web.Response:
     """GET /api/health — simple health check, no auth required."""
     return web.json_response({"status": "ok", "time": int(time.time())})
@@ -224,6 +255,7 @@ async def logging_middleware(request: web.Request, handler) -> web.Response:
 def create_web_app(
     config: Config, user_settings: dict,
     cors_origin: str = "*", save_fn=None,
+    starred_keys: set[str] | None = None, save_starred_fn=None,
 ) -> web.Application:
     """Create and configure the aiohttp web application."""
     app = web.Application(middlewares=[logging_middleware, cors_middleware])
@@ -232,11 +264,17 @@ def create_web_app(
     app["cors_origin"] = cors_origin
     if save_fn:
         app["save_fn"] = save_fn
+    if starred_keys is not None:
+        app["starred_keys"] = starred_keys
+    if save_starred_fn:
+        app["save_starred_fn"] = save_starred_fn
 
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/registry", handle_registry)
     app.router.add_get("/api/settings", handle_get_settings)
     app.router.add_post("/api/settings", handle_post_settings)
     app.router.add_delete("/api/settings", handle_delete_settings)
+    app.router.add_get("/api/starred", handle_get_starred)
+    app.router.add_post("/api/starred", handle_post_starred)
 
     return app
