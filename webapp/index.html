@@ -197,6 +197,22 @@
     width: 120px;
   }
 
+  .setting:has(textarea) { flex-wrap: wrap; }
+  .setting:has(textarea) .setting-control { width: 100%; }
+
+  .setting-control textarea {
+    padding: 4px 8px;
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: monospace;
+    width: 100%;
+    min-height: 5lh;
+    resize: vertical;
+  }
+
   .reset-btn {
     width: 32px; height: 32px;
     border: none; background: transparent;
@@ -340,6 +356,8 @@ function buildControl(s, value) {
     wrap.appendChild(buildSelect(s, value));
   } else if (s.type === 'int' || s.type === 'float') {
     wrap.appendChild(buildStepper(s, value));
+  } else if (s.type === 'str') {
+    wrap.appendChild(buildTextarea(s, value));
   } else {
     wrap.appendChild(buildTextInput(s, value));
   }
@@ -404,6 +422,14 @@ function stepValue(s, input, delta) {
   input.value = rounded;
   onChange(s.key, String(rounded));
   haptic();
+}
+
+function buildTextarea(s, value) {
+  const ta = document.createElement('textarea');
+  ta.value = value || '';
+  ta.rows = 5;
+  ta.addEventListener('input', () => onChange(s.key, ta.value));
+  return ta;
 }
 
 function buildTextInput(s, value) {
