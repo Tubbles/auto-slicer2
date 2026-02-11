@@ -36,7 +36,7 @@ def resolve_settings(
     # Drop values that match the definition default — no need to send them
     for key in list(resolved):
         defn = registry.get(key)
-        if defn and str(defn.default_value) == resolved[key] and key not in overrides:
+        if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in config_defaults:
             del resolved[key]
 
     return resolved

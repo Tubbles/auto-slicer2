@@ -144,3 +144,11 @@ class TestResolveSettings:
         # User explicitly sets a=5.0 (same as default) — should be kept
         result = resolve_settings(reg, {}, {"a": "5.0"})
         assert result["a"] == "5.0"
+
+    def test_keeps_config_default_even_if_matches_definition(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=5.0),
+        ])
+        # config.ini sets a=5.0 (same as definition) — should still be sent
+        result = resolve_settings(reg, {"a": "5.0"}, {})
+        assert result["a"] == "5.0"
