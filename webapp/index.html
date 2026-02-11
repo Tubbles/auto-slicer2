@@ -136,6 +136,10 @@
     flex-shrink: 0;
     line-height: 1;
   }
+  .computed-badge.overridden {
+    color: var(--hint);
+    opacity: 0.6;
+  }
 
   .toggle {
     position: relative;
@@ -408,18 +412,13 @@ function updateComputedDisplay() {
       detail.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}${computedStr}`;
     }
 
-    // Toggle f(x) badge
+    // Toggle f(x) badge state
     const control = el.querySelector('.setting-control');
     if (!control) return;
-    const existing = control.querySelector('.computed-badge');
-    if (isComputed && !existing) {
-      const badge = document.createElement('span');
-      badge.className = 'computed-badge';
-      badge.textContent = 'f(x)';
-      badge.title = 'Computed from other settings';
-      control.insertBefore(badge, control.firstChild);
-    } else if (!isComputed && existing) {
-      existing.remove();
+    const badge = control.querySelector('.computed-badge');
+    if (badge) {
+      badge.classList.toggle('overridden', !isComputed);
+      badge.title = isComputed ? 'Computed from other settings' : 'Expression overridden by user';
     }
 
     // Update control value for computed settings that aren't user-modified
@@ -626,13 +625,13 @@ function buildSettingRow(s) {
   else val = effectiveValue(s);
   const control = buildControl(s, val);
 
-  // Show f(x) badge for computed (derived) settings
+  // Show f(x) badge for settings with expressions
   const isComputed = !isModified && s.key in computedValues;
-  if (isComputed) {
+  if (s.value_expression) {
     const badge = document.createElement('span');
-    badge.className = 'computed-badge';
+    badge.className = 'computed-badge' + (isComputed ? '' : ' overridden');
     badge.textContent = 'f(x)';
-    badge.title = 'Computed from other settings';
+    badge.title = isComputed ? 'Computed from other settings' : 'Expression overridden by user';
     control.insertBefore(badge, control.firstChild);
   }
 
