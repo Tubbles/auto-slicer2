@@ -421,6 +421,27 @@ function updateComputedDisplay() {
     } else if (!isComputed && existing) {
       existing.remove();
     }
+
+    // Update control value for computed settings that aren't user-modified
+    if (isComputed) {
+      const val = String(computedValues[key]);
+      if (s.type === 'bool') {
+        const cb = control.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = val === 'true' || val === 'True';
+      } else if (s.type === 'enum') {
+        const sel = control.querySelector('select');
+        if (sel && sel.value !== val) sel.value = val;
+      } else if (s.type === 'int' || s.type === 'float') {
+        const inp = control.querySelector('input[type="number"]');
+        if (inp && inp.value !== val) inp.value = val;
+      } else if (s.type === 'str') {
+        const ta = control.querySelector('textarea');
+        if (ta && ta.value !== val) ta.value = val;
+      } else {
+        const inp = control.querySelector('input[type="text"]');
+        if (inp && inp.value !== val) inp.value = val;
+      }
+    }
   });
 }
 
