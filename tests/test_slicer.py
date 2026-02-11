@@ -2,7 +2,22 @@
 
 from pathlib import Path
 
-from auto_slicer.slicer import build_cura_command, merge_settings
+from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
+from auto_slicer.slicer import build_cura_command, merge_settings, resolve_settings
+
+
+def _make_setting(key, setting_type="float", default_value=0.0, expr=None):
+    return SettingDefinition(
+        key=key, label=key, description="",
+        setting_type=setting_type, default_value=default_value,
+        value_expression=expr,
+    )
+
+
+def _make_registry(settings_list):
+    settings = {s.key: s for s in settings_list}
+    label_map, norm_map = _build_indexes(settings)
+    return SettingsRegistry(settings, label_map, norm_map)
 
 
 class TestMergeSettings:
@@ -66,3 +81,49 @@ class TestBuildCuraCommand:
         d_indices = [i for i, x in enumerate(cmd) if x == "-d"]
         assert len(d_indices) == 2
         assert cmd[d_indices[1] + 1] == "/resources/extruders"
+
+
+class TestResolveSettings:
+    def test_computed_values_included(self):
+        reg = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("computed", expr="layer_height * 2"),
+        ])
+        result = resolve_settings(reg, {}, {})
+        assert result["computed"] == "0.4"
+
+    def test_overrides_win_over_computed(self):
+        reg = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("computed", expr="layer_height * 2"),
+        ])
+        result = resolve_settings(reg, {}, {"computed": "99"})
+        assert result["computed"] == "99"
+
+    def test_override_propagates_to_dependents(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=10.0),
+            _make_setting("b", expr="a + 5"),
+        ])
+        result = resolve_settings(reg, {}, {"a": "20"})
+        assert result["a"] == "20"
+        assert result["b"] == "25.0"
+
+    def test_config_defaults_included(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=1.0),
+            _make_setting("b", expr="a * 3"),
+        ])
+        result = resolve_settings(reg, {"a": "10"}, {})
+        assert result["a"] == "10"
+        assert result["b"] == "30.0"
+
+    def test_chained_expressions(self):
+        reg = _make_registry([
+            _make_setting("x", default_value=2.0),
+            _make_setting("y", expr="x + 1"),
+            _make_setting("z", expr="y * 2"),
+        ])
+        result = resolve_settings(reg, {}, {})
+        assert result["y"] == "3.0"
+        assert result["z"] == "6.0"

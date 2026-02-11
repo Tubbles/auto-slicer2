@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 
 from .config import Config
+from .settings_eval import evaluate_expressions
+from .settings_registry import SettingsRegistry
 
 
 def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[str, str]:
@@ -11,6 +13,26 @@ def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[
     result = defaults.copy()
     result.update(overrides)
     return result
+
+
+def resolve_settings(
+    registry: SettingsRegistry,
+    config_defaults: dict[str, str],
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    """Evaluate all expressions and return a flat string dict for CuraEngine.
+
+    Merges config defaults, user overrides, and computed values.
+    User overrides take highest priority; computed values fill in the rest.
+    """
+    pinned = merge_settings(config_defaults, overrides)
+    result = evaluate_expressions(registry, pinned, config_defaults)
+
+    # Start with computed values (as strings)
+    resolved = {k: str(v) for k, v in result.values.items()}
+    # Layer pinned values on top (they always win)
+    resolved.update(pinned)
+    return resolved
 
 
 def build_cura_command(
@@ -41,7 +63,7 @@ def build_cura_command(
 
 def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
     """Slice an STL file and return (success, message, archive_path)."""
-    active_settings = merge_settings(config.defaults, overrides)
+    active_settings = resolve_settings(config.registry, config.defaults, overrides)
     gcode_path = stl_path.with_suffix(".gcode")
 
     cmd = build_cura_command(
