@@ -662,9 +662,6 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
       }
       setStatus(msg);
 
-      if (warningKeys.length === 0 && WebApp) {
-        setTimeout(() => { try { WebApp.close(); } catch(e) {} }, 1200);
-      }
     }
   } catch (e) {
     WebApp.MainButton.hideProgress();
