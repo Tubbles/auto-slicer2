@@ -54,6 +54,7 @@ auto_slicer/
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
   settings_match.py        # resolve_setting() fuzzy/natural language resolution
   settings_validate.py     # validate() type + bounds checking
+  settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # BUILTIN_PRESETS + load_presets()
   web_auth.py              # Telegram initData HMAC-SHA256 validation
   web_api.py               # aiohttp HTTP API for Mini App
@@ -64,6 +65,7 @@ webapp/
 tests/
   test_settings.py         # tests for registry, matcher, validator, presets, persistence
   test_slicer.py           # tests for slicer command building and settings merge
+  test_eval.py             # tests for expression evaluator
   test_web_api.py          # tests for web API helpers and endpoints
   test_web_auth.py         # tests for Telegram initData validation
 ```
@@ -77,6 +79,8 @@ tests/
 **Settings matching** (`settings_match.py`): `resolve_setting()` resolves user queries to setting keys via tiered matching: exact key, exact label, substring, then fuzzy (difflib).
 
 **Settings validation** (`settings_validate.py`): `validate()` type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
+
+**Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. Used for webapp preview only — CuraEngine evaluates its own expressions at slice time. Exposed via `POST /api/evaluate`.
 
 **Presets** (`presets.py`): `BUILTIN_PRESETS` dict (draft/standard/fine/strong) and `load_presets()` which merges in optional custom presets from presets.json.
 

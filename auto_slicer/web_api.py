@@ -13,6 +13,7 @@ from aiohttp import web
 
 from .config import Config
 from .presets import load_presets
+from .settings_eval import build_dep_graph, build_reverse_deps, evaluate_expressions
 from .settings_registry import SettingDefinition
 from .settings_validate import validate
 from .web_auth import validate_init_data
@@ -40,6 +41,8 @@ def _setting_to_dict(defn: SettingDefinition) -> dict:
         d["maximum_value_warning"] = defn.maximum_value_warning
     if defn.options:
         d["options"] = defn.options
+    if defn.value_expression is not None:
+        d["value_expression"] = defn.value_expression
     return d
 
 
@@ -62,11 +65,17 @@ def _build_registry_response(config: Config) -> dict:
         for name, p in presets.items()
     }
 
+    dep_graph = build_dep_graph(config.registry)
+    reverse = build_reverse_deps(dep_graph)
+    # Convert sets to sorted lists for JSON serialization
+    reverse_json = {k: sorted(v) for k, v in reverse.items()}
+
     return {
         "settings": settings_list,
         "categories": categories,
         "presets": preset_data,
         "defaults": config.defaults,
+        "reverse_deps": reverse_json,
     }
 
 
@@ -217,6 +226,28 @@ async def handle_post_starred(request: web.Request) -> web.Response:
     return web.json_response({"keys": sorted(starred)})
 
 
+async def handle_evaluate(request: web.Request) -> web.Response:
+    """POST /api/evaluate — compute all expression-based settings.
+
+    Body: {"overrides": {"key": "value", ...}}
+    No auth required — stateless pure computation.
+    """
+    config: Config = request.app["config"]
+
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+
+    pinned = body.get("overrides", {})
+    result = evaluate_expressions(config.registry, pinned, config.defaults)
+
+    return web.json_response({
+        "computed": result.values,
+        "errors": result.errors,
+    })
+
+
 async def handle_health(request: web.Request) -> web.Response:
     """GET /api/health — simple health check, no auth required."""
     return web.json_response({"status": "ok", "time": int(time.time())})
@@ -276,5 +307,6 @@ def create_web_app(
     app.router.add_delete("/api/settings", handle_delete_settings)
     app.router.add_get("/api/starred", handle_get_starred)
     app.router.add_post("/api/starred", handle_post_starred)
+    app.router.add_post("/api/evaluate", handle_evaluate)
 
     return app

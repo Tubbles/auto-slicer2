@@ -107,6 +107,14 @@ class TestSettingToDict:
         d = _setting_to_dict(_make_defn(options={}))
         assert "options" not in d
 
+    def test_includes_value_expression(self):
+        d = _setting_to_dict(_make_defn(value_expression="layer_height * 2"))
+        assert d["value_expression"] == "layer_height * 2"
+
+    def test_omits_none_value_expression(self):
+        d = _setting_to_dict(_make_defn(value_expression=None))
+        assert "value_expression" not in d
+
 
 class TestBuildRegistryResponse:
     def test_structure(self):
@@ -140,6 +148,17 @@ class TestBuildRegistryResponse:
         config = _make_config()
         resp = _build_registry_response(config)
         assert resp["defaults"]["test_key"] == "1.0"
+
+    def test_reverse_deps_present(self):
+        settings = {
+            "a": _make_defn(key="a"),
+            "b": _make_defn(key="b", value_expression="a * 2"),
+        }
+        config = _make_config(settings)
+        resp = _build_registry_response(config)
+        assert "reverse_deps" in resp
+        assert "a" in resp["reverse_deps"]
+        assert "b" in resp["reverse_deps"]["a"]
 
     def test_multiple_categories(self):
         settings = {
@@ -403,3 +422,76 @@ class TestPostStarred:
             headers={"Authorization": auth, "Content-Type": "application/json"},
         )
         assert resp.status == 400
+
+
+# --- POST /api/evaluate tests ---
+
+@pytest.fixture
+def eval_app():
+    """App with settings that have value expressions."""
+    settings = {
+        "base": _make_defn(key="base", default_value=10.0, value_expression=None),
+        "computed": _make_defn(key="computed", default_value=0.0, value_expression="base * 2"),
+    }
+    config = _make_config(settings)
+    app = create_web_app(config, {})
+    return app
+
+
+class TestEvaluateEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup(self, eval_app):
+        self.app = eval_app
+
+    @pytest.mark.asyncio
+    async def test_returns_computed_values(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {}})
+        assert resp.status == 200
+        data = await resp.json()
+        assert "computed" in data
+        assert data["computed"]["computed"] == 20.0
+
+    @pytest.mark.asyncio
+    async def test_respects_overrides(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {"base": "5"}})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["computed"]["computed"] == 10.0
+
+    @pytest.mark.asyncio
+    async def test_pinned_excluded_from_computed(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {"computed": "99"}})
+        data = await resp.json()
+        assert "computed" not in data["computed"]
+
+    @pytest.mark.asyncio
+    async def test_no_auth_required(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {}})
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_invalid_json(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post(
+            "/api/evaluate",
+            data="not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_errors_reported(self, aiohttp_client):
+        # Create app with a bad expression
+        settings = {
+            "bad": _make_defn(key="bad", value_expression="1 / 0"),
+        }
+        config = _make_config(settings)
+        app = create_web_app(config, {})
+        client = await aiohttp_client(app)
+        resp = await client.post("/api/evaluate", json={"overrides": {}})
+        data = await resp.json()
+        assert "bad" in data["errors"]

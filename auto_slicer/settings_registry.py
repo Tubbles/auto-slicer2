@@ -17,6 +17,7 @@ class SettingDefinition:
     maximum_value_warning: float | None = None
     options: dict[str, str] = field(default_factory=dict)  # enum key→label
     category: str = ""
+    value_expression: str | None = None
 
 
 @dataclass
@@ -71,6 +72,16 @@ def _resolve_chain(def_dir: Path, printer_definition: str) -> list[str]:
     return chain
 
 
+def _extract_expression(value: dict) -> str | None:
+    """Extract a value expression string, or None if it's not an expression."""
+    raw = value.get("value")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    return None
+
+
 def _make_setting(key: str, value: dict, category: str) -> SettingDefinition | None:
     """Create a SettingDefinition from a JSON node, or None if not a leaf setting."""
     setting_type = value.get("type", "")
@@ -89,6 +100,7 @@ def _make_setting(key: str, value: dict, category: str) -> SettingDefinition | N
         maximum_value_warning=_try_parse_number(value.get("maximum_value_warning")),
         options=value.get("options", {}),
         category=category,
+        value_expression=_extract_expression(value),
     )
 
 
@@ -120,6 +132,9 @@ def _apply_overrides(settings: dict[str, SettingDefinition], overrides: dict) ->
         defn = settings[key]
         if "default_value" in override:
             defn.default_value = override["default_value"]
+        if "value" in override:
+            expr = override["value"]
+            defn.value_expression = expr if isinstance(expr, str) else None
         if "minimum_value" in override:
             defn.minimum_value = _try_parse_number(override["minimum_value"])
         if "maximum_value" in override:

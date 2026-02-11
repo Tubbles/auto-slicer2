@@ -121,6 +121,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .setting-meta em {
+    font-style: italic;
+    color: var(--link);
+  }
   .setting-desc {
     font-size: 12px;
     color: var(--hint);
@@ -290,6 +294,8 @@ let original = {};
 let pendingChanges = {};
 
 let starredKeys = new Set();
+let computedValues = {};
+let reverseDeps = {};
 
 // --- Auth ---
 
@@ -334,6 +340,15 @@ async function fetchStarred() {
   return new Set(data.keys || []);
 }
 
+async function postEvaluate(pinned) {
+  const r = await fetch(API_BASE + '/api/evaluate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ overrides: pinned }),
+  });
+  return r.json();
+}
+
 async function postStarred(add, remove) {
   const r = await fetch(API_BASE + '/api/starred', {
     method: 'POST',
@@ -342,6 +357,56 @@ async function postStarred(add, remove) {
   });
   const data = await r.json();
   return new Set(data.keys || []);
+}
+
+// --- Recompute ---
+
+let _recomputeTimer = null;
+
+function scheduleRecompute() {
+  clearTimeout(_recomputeTimer);
+  _recomputeTimer = setTimeout(recompute, 200);
+}
+
+async function recompute() {
+  if (!registry) return;
+  // Build the full set of pinned values: overrides + pendingChanges (excluding resets)
+  const pinned = {};
+  for (const [k, v] of Object.entries(overrides)) pinned[k] = v;
+  for (const [k, v] of Object.entries(pendingChanges)) {
+    if (v === null) delete pinned[k];
+    else pinned[k] = v;
+  }
+  try {
+    const data = await postEvaluate(pinned);
+    computedValues = data.computed || {};
+    updateComputedDisplay();
+  } catch (e) {
+    // Silently ignore recompute errors
+  }
+}
+
+function updateComputedDisplay() {
+  document.querySelectorAll('.setting').forEach(el => {
+    const key = el.dataset.key;
+    const meta = el.querySelector('.setting-meta');
+    if (!meta) return;
+
+    const s = registry.settings.find(x => x.key === key);
+    if (!s) return;
+
+    const unit = s.unit ? ` ${s.unit}` : '';
+    const revCount = (reverseDeps[key] || []).length;
+    const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
+
+    const isModified = (key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null));
+
+    if (!isModified && key in computedValues) {
+      meta.innerHTML = `${s.key} [${s.type}] computed: <em>${computedValues[key]}</em>${unit}${affectsStr}`;
+    } else {
+      meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}`;
+    }
+  });
 }
 
 // --- Controls ---
@@ -447,8 +512,9 @@ function baseDefault(s) {
   return String(s.default_value);
 }
 
-function defaultValue(s) {
+function effectiveValue(s) {
   if (s.key in overrides) return String(overrides[s.key]);
+  if (s.key in computedValues) return String(computedValues[s.key]);
   return baseDefault(s);
 }
 
@@ -497,7 +563,14 @@ function buildSettingRow(s) {
   const meta = document.createElement('div');
   meta.className = 'setting-meta';
   const unit = s.unit ? ` ${s.unit}` : '';
-  meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}`;
+  const revCount = (reverseDeps[s.key] || []).length;
+  const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
+
+  if (!isModified && s.key in computedValues) {
+    meta.innerHTML = `${s.key} [${s.type}] computed: <em>${computedValues[s.key]}</em>${unit}${affectsStr}`;
+  } else {
+    meta.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}`;
+  }
 
   info.append(label, meta);
 
@@ -511,7 +584,7 @@ function buildSettingRow(s) {
   let val;
   if (pendingNull) val = baseDefault(s);
   else if (s.key in pendingChanges) val = pendingChanges[s.key];
-  else val = defaultValue(s);
+  else val = effectiveValue(s);
   const control = buildControl(s, val);
 
   if (isModified) {
@@ -562,6 +635,7 @@ function onChange(key, value) {
     }
   }
   updateMainButton();
+  scheduleRecompute();
 }
 
 function onReset(key) {
@@ -572,6 +646,7 @@ function onReset(key) {
   }
   render();
   haptic();
+  scheduleRecompute();
 }
 
 function haptic() {
@@ -650,6 +725,7 @@ function renderPresets() {
       }
       render();
       haptic();
+      scheduleRecompute();
       setStatus(`Preset '${name}' staged`);
     });
     container.appendChild(btn);
@@ -673,6 +749,7 @@ function renderClearAllBtn(container) {
       pendingChanges = {};
       render();
       renderPresets();
+      recompute();
       haptic();
       setStatus('All overrides cleared');
     } catch (e) {
@@ -711,11 +788,13 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
         delete pendingChanges[k];
       }
       render();
+      recompute();
     } else {
       for (const k of appliedKeys) overrides[k] = result.applied[k];
       for (const k of toRemove) delete overrides[k];
       pendingChanges = {};
       render();
+      recompute();
 
       let msg = `Applied ${appliedKeys.length} setting${appliedKeys.length !== 1 ? 's' : ''}`;
       if (warningKeys.length > 0) {
@@ -756,10 +835,12 @@ async function init() {
     overrides = settings;
     original = { ...settings };
     starredKeys = starred;
+    reverseDeps = reg.reverse_deps || {};
 
     document.getElementById('loading').remove();
     renderPresets();
     render();
+    recompute();
   } catch (e) {
     document.getElementById('loading').textContent = 'Failed to load: ' + e.message;
   }

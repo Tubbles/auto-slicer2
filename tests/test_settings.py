@@ -90,6 +90,25 @@ class TestSettingsRegistry:
         # The expression "0.8 * min(extruderValues(...))" should be None
         assert defn.maximum_value_warning is None
 
+    def test_value_expression_populated(self, registry):
+        defn = registry.get("bottom_layers")
+        assert defn is not None
+        assert defn.value_expression is not None
+        assert "bottom_thickness" in defn.value_expression
+
+    def test_value_expression_none_for_simple_settings(self, registry):
+        # layer_height has no value expression in fdmprinter (it's a primary setting)
+        defn = registry.get("layer_height")
+        assert defn is not None
+        assert defn.value_expression is None
+
+    def test_child_value_overrides_applied(self, registry):
+        # creality_base overrides machine_heated_bed value to true
+        defn = registry.get("machine_heated_bed")
+        assert defn is not None
+        # The ender3 chain should have set this to true via value override
+        assert defn.default_value is True or defn.value_expression is not None
+
 
 # --- Pure registry function tests ---
 
@@ -144,6 +163,42 @@ class TestRegistryFunctions:
         }
         _apply_overrides(settings, {"test_key": {"default_value": 2.0}})
         assert settings["test_key"].default_value == 2.0
+
+    def test_flatten_settings_with_value_expression(self):
+        node = {
+            "computed_setting": {
+                "type": "int",
+                "label": "Computed",
+                "description": "A computed setting",
+                "default_value": 4,
+                "value": "math.ceil(bottom_thickness / layer_height)",
+            },
+        }
+        result = _flatten_settings(node, category="Test")
+        assert "computed_setting" in result
+        assert result["computed_setting"].value_expression == "math.ceil(bottom_thickness / layer_height)"
+
+    def test_flatten_settings_no_value_expression(self):
+        node = {
+            "plain_setting": {
+                "type": "float",
+                "label": "Plain",
+                "description": "",
+                "default_value": 1.0,
+            },
+        }
+        result = _flatten_settings(node, category="Test")
+        assert result["plain_setting"].value_expression is None
+
+    def test_apply_overrides_with_value(self):
+        settings = {
+            "test_key": SettingDefinition(
+                key="test_key", label="Test", description="",
+                setting_type="float", default_value=1.0,
+            ),
+        }
+        _apply_overrides(settings, {"test_key": {"value": "layer_height * 2"}})
+        assert settings["test_key"].value_expression == "layer_height * 2"
 
     def test_apply_overrides_ignores_unknown_keys(self):
         settings = {}
