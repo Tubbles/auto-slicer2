@@ -294,6 +294,7 @@ if (WebApp) {
 
 const params = new URLSearchParams(location.search);
 const API_BASE = params.get('api') || '';
+const TOKEN = params.get('token') || '';
 
 let registry = null;
 let overrides = {};
@@ -307,19 +308,28 @@ let reverseDeps = {};
 // --- Auth ---
 
 function authHeaders() {
-  const initData = (WebApp && WebApp.initData) || '';
-  return { 'Authorization': 'tma ' + initData };
+  return { 'Authorization': 'Bearer ' + TOKEN };
+}
+
+function handleAuthError(r) {
+  if (r.status === 401) {
+    setStatus('Session expired — use /webapp in the bot to reopen.', true);
+    return true;
+  }
+  return false;
 }
 
 // --- API ---
 
 async function fetchRegistry() {
   const r = await fetch(API_BASE + '/api/registry', { headers: authHeaders() });
+  if (handleAuthError(r)) throw new Error('session expired');
   return r.json();
 }
 
 async function fetchSettings() {
   const r = await fetch(API_BASE + '/api/settings', { headers: authHeaders() });
+  if (handleAuthError(r)) throw new Error('session expired');
   const data = await r.json();
   return data.overrides || {};
 }
@@ -330,6 +340,7 @@ async function postSettings(payload) {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  if (handleAuthError(r)) throw new Error('session expired');
   return r.json();
 }
 
@@ -338,11 +349,13 @@ async function deleteSettings() {
     method: 'DELETE',
     headers: authHeaders(),
   });
+  if (handleAuthError(r)) throw new Error('session expired');
   return r.json();
 }
 
 async function fetchStarred() {
-  const r = await fetch(API_BASE + '/api/starred');
+  const r = await fetch(API_BASE + '/api/starred', { headers: authHeaders() });
+  if (handleAuthError(r)) throw new Error('session expired');
   const data = await r.json();
   return new Set(data.keys || []);
 }
@@ -350,9 +363,10 @@ async function fetchStarred() {
 async function postEvaluate(pinned) {
   const r = await fetch(API_BASE + '/api/evaluate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ overrides: pinned }),
   });
+  if (handleAuthError(r)) throw new Error('session expired');
   return r.json();
 }
 
@@ -362,6 +376,7 @@ async function postStarred(add, remove) {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ add, remove }),
   });
+  if (handleAuthError(r)) throw new Error('session expired');
   const data = await r.json();
   return new Set(data.keys || []);
 }

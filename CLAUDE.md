@@ -57,8 +57,8 @@ auto_slicer/
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
-  web_auth.py              # Telegram initData HMAC-SHA256 validation
-  web_api.py               # aiohttp HTTP API for Mini App
+  web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
+  web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
 auto-slicer2.py            # thin entry point (argparse, app wiring)
 starred_keys.default.json  # default starred settings template (checked in)
 webapp/
@@ -90,6 +90,8 @@ tests/
 **Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID. File-backed via `user_settings.json` — persisted on every mutation, loaded on startup. Modified via the Mini App web API.
 
 **Starred keys**: Globally shared set of "favorite" setting keys, shown in the Mini App's "Starred" tab. File-backed via `starred_keys.json` (gitignored, created from `starred_keys.default.json` template on first run). Any authenticated user can star/unstar settings via `POST /api/starred`.
+
+**API authentication**: Ephemeral Bearer tokens with 30-minute sliding TTL. The `/webapp` bot command generates a random token, stores `(user_id, expiry)` in memory, and embeds it in the webapp URL. The frontend sends `Authorization: Bearer <token>` on all requests. The auth middleware validates tokens and refreshes expiry on each use. `/api/health` is the only endpoint that does not require a Bearer token. `web_auth.py` (initData HMAC validation) is retained but no longer used for API auth.
 
 ### Workflow
 

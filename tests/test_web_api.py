@@ -1,10 +1,7 @@
 """Tests for web API pure helpers."""
 
-import hashlib
-import hmac
 import time
 from pathlib import Path
-from urllib.parse import urlencode
 
 import pytest
 from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer
@@ -13,7 +10,8 @@ from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry
 from auto_slicer.config import Config
 from auto_slicer.web_api import (
     _setting_to_dict, _build_registry_response, _validate_overrides,
-    create_web_app,
+    create_web_app, generate_token, validate_token, cleanup_expired,
+    TOKEN_TTL,
 )
 
 
@@ -56,10 +54,22 @@ def _make_config(settings: dict[str, SettingDefinition] | None = None) -> Config
         printer_def="",
         defaults={"test_key": "1.0"},
         telegram_token="test:token",
-        allowed_users=set(),
+        allowed_users={42, 999},
         notify_chat_id=None,
         registry=registry,
     )
+
+
+def _add_token(app, user_id: int = 42) -> str:
+    """Generate a token, store it in the app, and return it."""
+    token = generate_token()
+    app["tokens"][token] = (user_id, time.time() + TOKEN_TTL)
+    return token
+
+
+def _bearer(token: str) -> dict:
+    """Return an Authorization header dict for a Bearer token."""
+    return {"Authorization": f"Bearer {token}"}
 
 
 class TestSettingToDict:
@@ -251,21 +261,57 @@ class TestValidateOverrides:
         assert result["warnings"] == {}
 
 
-# --- DELETE /api/settings integration tests ---
-
-TOKEN = "test:token"
+# --- Token helper tests ---
 
 
-def _make_init_data(user_id: int) -> str:
-    """Build a valid Telegram initData string for testing."""
-    auth_date = str(int(time.time()))
-    user_json = f'{{"id":{user_id},"first_name":"Test"}}'
-    params = {"user": user_json, "auth_date": auth_date}
-    data_check = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
-    secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
-    h = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-    params["hash"] = h
-    return urlencode(params)
+class TestGenerateToken:
+    def test_returns_string(self):
+        token = generate_token()
+        assert isinstance(token, str)
+        assert len(token) > 20
+
+    def test_unique(self):
+        tokens = {generate_token() for _ in range(100)}
+        assert len(tokens) == 100
+
+
+class TestValidateToken:
+    def test_valid_token(self):
+        tokens = {}
+        tokens["abc"] = (42, time.time() + 600)
+        assert validate_token(tokens, "abc") == 42
+
+    def test_refreshes_ttl(self):
+        tokens = {}
+        old_expiry = time.time() + 10
+        tokens["abc"] = (42, old_expiry)
+        validate_token(tokens, "abc")
+        _, new_expiry = tokens["abc"]
+        assert new_expiry > old_expiry
+
+    def test_expired_token(self):
+        tokens = {}
+        tokens["abc"] = (42, time.time() - 1)
+        assert validate_token(tokens, "abc") is None
+        assert "abc" not in tokens
+
+    def test_unknown_token(self):
+        tokens = {}
+        assert validate_token(tokens, "nope") is None
+
+    def test_cleanup_expired(self):
+        tokens = {
+            "good": (1, time.time() + 600),
+            "bad": (2, time.time() - 1),
+            "also_bad": (3, time.time() - 100),
+        }
+        cleanup_expired(tokens)
+        assert "good" in tokens
+        assert "bad" not in tokens
+        assert "also_bad" not in tokens
+
+
+# --- Integration test fixtures ---
 
 
 @pytest.fixture
@@ -278,11 +324,70 @@ def app_with_user():
     starred = {"layer_height", "speed_print"}
     starred_saved = []
     save_starred_fn = lambda: starred_saved.append(set(starred))
+    tokens = {}
     app = create_web_app(
         config, user_settings, save_fn=save_fn,
         starred_keys=starred, save_starred_fn=save_starred_fn,
+        tokens=tokens,
     )
     return app, user_settings, saved, starred, starred_saved
+
+
+# --- Auth middleware tests ---
+
+
+class TestAuthMiddleware:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, _, _, _, _ = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_health_no_auth(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/health")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_options_no_auth(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.options("/api/settings")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_missing_token_401(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/settings")
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_401(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/settings", headers=_bearer("bogus"))
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_expired_token_401(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = "expired-tok"
+        self.app["tokens"][token] = (42, time.time() - 1)
+        resp = await client.get("/api/settings", headers=_bearer(token))
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_valid_token_passes(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        resp = await client.get("/api/settings", headers=_bearer(token))
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_old_tma_scheme_rejected(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.get("/api/settings", headers={"Authorization": "tma fakedata"})
+        assert resp.status == 401
+
+
+# --- DELETE /api/settings integration tests ---
 
 
 class TestDeleteSettings:
@@ -297,8 +402,8 @@ class TestDeleteSettings:
     @pytest.mark.asyncio
     async def test_clears_overrides(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
-        resp = await client.delete("/api/settings", headers={"Authorization": auth})
+        token = _add_token(self.app, 42)
+        resp = await client.delete("/api/settings", headers=_bearer(token))
         assert resp.status == 200
         data = await resp.json()
         assert data == {"overrides": {}}
@@ -307,8 +412,8 @@ class TestDeleteSettings:
     @pytest.mark.asyncio
     async def test_calls_save_fn(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
-        await client.delete("/api/settings", headers={"Authorization": auth})
+        token = _add_token(self.app, 42)
+        await client.delete("/api/settings", headers=_bearer(token))
         assert len(self.saved) == 1
 
     @pytest.mark.asyncio
@@ -320,8 +425,8 @@ class TestDeleteSettings:
     @pytest.mark.asyncio
     async def test_nonexistent_user_ok(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(999)
-        resp = await client.delete("/api/settings", headers={"Authorization": auth})
+        token = _add_token(self.app, 999)
+        resp = await client.delete("/api/settings", headers=_bearer(token))
         assert resp.status == 200
         data = await resp.json()
         assert data == {"overrides": {}}
@@ -335,7 +440,8 @@ class TestGetStarred:
     @pytest.mark.asyncio
     async def test_returns_keys(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        resp = await client.get("/api/starred")
+        token = _add_token(self.app)
+        resp = await client.get("/api/starred", headers=_bearer(token))
         assert resp.status == 200
         data = await resp.json()
         assert set(data["keys"]) == {"layer_height", "speed_print"}
@@ -343,21 +449,23 @@ class TestGetStarred:
     @pytest.mark.asyncio
     async def test_returns_sorted(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        resp = await client.get("/api/starred")
+        token = _add_token(self.app)
+        resp = await client.get("/api/starred", headers=_bearer(token))
         data = await resp.json()
         assert data["keys"] == sorted(data["keys"])
 
     @pytest.mark.asyncio
-    async def test_no_auth_required(self, aiohttp_client):
+    async def test_requires_auth(self, aiohttp_client):
         client = await aiohttp_client(self.app)
         resp = await client.get("/api/starred")
-        assert resp.status == 200
+        assert resp.status == 401
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_starred(self, aiohttp_client):
         self.starred.clear()
         client = await aiohttp_client(self.app)
-        resp = await client.get("/api/starred")
+        token = _add_token(self.app)
+        resp = await client.get("/api/starred", headers=_bearer(token))
         data = await resp.json()
         assert data["keys"] == []
 
@@ -370,11 +478,11 @@ class TestPostStarred:
     @pytest.mark.asyncio
     async def test_add_keys(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
+        token = _add_token(self.app)
         resp = await client.post(
             "/api/starred",
             json={"add": ["infill_sparse_density"]},
-            headers={"Authorization": auth},
+            headers=_bearer(token),
         )
         assert resp.status == 200
         data = await resp.json()
@@ -384,11 +492,11 @@ class TestPostStarred:
     @pytest.mark.asyncio
     async def test_remove_keys(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
+        token = _add_token(self.app)
         resp = await client.post(
             "/api/starred",
             json={"remove": ["layer_height"]},
-            headers={"Authorization": auth},
+            headers=_bearer(token),
         )
         assert resp.status == 200
         data = await resp.json()
@@ -404,22 +512,22 @@ class TestPostStarred:
     @pytest.mark.asyncio
     async def test_calls_save_fn(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
+        token = _add_token(self.app)
         await client.post(
             "/api/starred",
             json={"add": ["new_key"]},
-            headers={"Authorization": auth},
+            headers=_bearer(token),
         )
         assert len(self.starred_saved) == 1
 
     @pytest.mark.asyncio
     async def test_invalid_json(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        auth = "tma " + _make_init_data(42)
+        token = _add_token(self.app)
         resp = await client.post(
             "/api/starred",
             data="not json",
-            headers={"Authorization": auth, "Content-Type": "application/json"},
+            headers={**_bearer(token), "Content-Type": "application/json"},
         )
         assert resp.status == 400
 
@@ -434,7 +542,8 @@ def eval_app():
         "computed": _make_defn(key="computed", default_value=0.0, value_expression="base * 2"),
     }
     config = _make_config(settings)
-    app = create_web_app(config, {})
+    tokens = {}
+    app = create_web_app(config, {}, tokens=tokens)
     return app
 
 
@@ -446,7 +555,8 @@ class TestEvaluateEndpoint:
     @pytest.mark.asyncio
     async def test_returns_computed_values(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        resp = await client.post("/api/evaluate", json={"overrides": {}})
+        token = _add_token(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {}}, headers=_bearer(token))
         assert resp.status == 200
         data = await resp.json()
         assert "computed" in data
@@ -455,7 +565,8 @@ class TestEvaluateEndpoint:
     @pytest.mark.asyncio
     async def test_respects_overrides(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        resp = await client.post("/api/evaluate", json={"overrides": {"base": "5"}})
+        token = _add_token(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {"base": "5"}}, headers=_bearer(token))
         assert resp.status == 200
         data = await resp.json()
         assert data["computed"]["computed"] == 10.0
@@ -463,23 +574,25 @@ class TestEvaluateEndpoint:
     @pytest.mark.asyncio
     async def test_pinned_excluded_from_computed(self, aiohttp_client):
         client = await aiohttp_client(self.app)
-        resp = await client.post("/api/evaluate", json={"overrides": {"computed": "99"}})
+        token = _add_token(self.app)
+        resp = await client.post("/api/evaluate", json={"overrides": {"computed": "99"}}, headers=_bearer(token))
         data = await resp.json()
         assert "computed" not in data["computed"]
 
     @pytest.mark.asyncio
-    async def test_no_auth_required(self, aiohttp_client):
+    async def test_requires_auth(self, aiohttp_client):
         client = await aiohttp_client(self.app)
         resp = await client.post("/api/evaluate", json={"overrides": {}})
-        assert resp.status == 200
+        assert resp.status == 401
 
     @pytest.mark.asyncio
     async def test_invalid_json(self, aiohttp_client):
         client = await aiohttp_client(self.app)
+        token = _add_token(self.app)
         resp = await client.post(
             "/api/evaluate",
             data="not json",
-            headers={"Content-Type": "application/json"},
+            headers={**_bearer(token), "Content-Type": "application/json"},
         )
         assert resp.status == 400
 
@@ -491,7 +604,8 @@ class TestEvaluateEndpoint:
         }
         config = _make_config(settings)
         app = create_web_app(config, {})
+        token = _add_token(app)
         client = await aiohttp_client(app)
-        resp = await client.post("/api/evaluate", json={"overrides": {}})
+        resp = await client.post("/api/evaluate", json={"overrides": {}}, headers=_bearer(token))
         data = await resp.json()
         assert "bad" in data["errors"]

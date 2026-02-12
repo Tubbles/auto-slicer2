@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonDefault, Update, WebAppInfo
@@ -9,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .slicer import slice_file
+from .web_api import generate_token, TOKEN_TTL
 
 
 SETTINGS_FILE = Path(__file__).parent.parent / "user_settings.json"
@@ -96,7 +98,11 @@ async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Mini App is not configured.")
         return
 
-    url = f"{config.webapp_url}?api={config.api_base_url}"
+    token = generate_token()
+    tokens = context.bot_data["tokens"]
+    tokens[token] = (update.effective_user.id, time.time() + TOKEN_TTL)
+
+    url = f"{config.webapp_url}?api={config.api_base_url}&token={token}"
     button = InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url))
     keyboard = InlineKeyboardMarkup([[button]])
     await update.message.reply_text("Tap to open settings:", reply_markup=keyboard)
@@ -159,11 +165,13 @@ async def post_init(app) -> None:
         from aiohttp import web as aio_web
         from .web_api import create_web_app
 
+        tokens: dict = app.bot_data.setdefault("tokens", {})
         save_fn = lambda: save_user_settings(SETTINGS_FILE, user_settings)
         save_starred_fn = lambda: save_starred_keys(STARRED_FILE, starred_keys)
         web_app = create_web_app(
             config, user_settings, save_fn=save_fn,
             starred_keys=starred_keys, save_starred_fn=save_starred_fn,
+            tokens=tokens,
         )
         runner = aio_web.AppRunner(web_app)
         await runner.setup()
