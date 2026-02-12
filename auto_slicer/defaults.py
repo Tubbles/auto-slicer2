@@ -14,7 +14,12 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "cool_fan_speed_min": "100",
     "cool_fan_speed_max": "100",
     "cool_fan_speed_0": "100",
-    # Ensure roofing/flooring layers are always passed to CuraEngine
+}
+
+# Settings that are always sent to CuraEngine even if they match the definition
+# default. Use this for settings where CuraEngine's built-in default is wrong or
+# where omitting the flag changes behavior.
+FORCED_SETTINGS: dict[str, str] = {
     "roofing_layer_count": "0",
     "flooring_layer_count": "0",
 }

@@ -1,8 +1,8 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from .defaults import BOUNDS_OVERRIDES, DEFAULT_SETTINGS
+from .defaults import BOUNDS_OVERRIDES, DEFAULT_SETTINGS, FORCED_SETTINGS
 from .settings_registry import SettingsRegistry, load_registry
 
 
@@ -20,6 +20,7 @@ class Config:
     allowed_users: set[int]
     notify_chat_id: int | None
     registry: SettingsRegistry
+    forced_keys: set[str] = field(default_factory=set)
     api_port: int = 0
     webapp_url: str = ""
     api_base_url: str = ""
@@ -49,8 +50,10 @@ def load_config(config) -> Config:
     def_dir = Path(config["PATHS"]["definition_dir"])
     printer_def = config["PATHS"]["printer_definition"]
     defaults = dict(DEFAULT_SETTINGS)
+    defaults.update(FORCED_SETTINGS)
     if config.has_section("DEFAULT_SETTINGS"):
         defaults.update(config["DEFAULT_SETTINGS"])
+    forced_keys = set(FORCED_SETTINGS)
     telegram_token = config["TELEGRAM"]["bot_token"]
 
     allowed = config["TELEGRAM"].get("allowed_users", "").strip()
@@ -74,6 +77,7 @@ def load_config(config) -> Config:
         def_dir=def_dir,
         printer_def=printer_def,
         defaults=defaults,
+        forced_keys=forced_keys,
         telegram_token=telegram_token,
         allowed_users=allowed_users,
         notify_chat_id=notify_chat_id,

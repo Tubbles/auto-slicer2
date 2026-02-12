@@ -145,10 +145,18 @@ class TestResolveSettings:
         result = resolve_settings(reg, {}, {"a": "5.0"})
         assert result["a"] == "5.0"
 
-    def test_keeps_config_default_even_if_matches_definition(self):
+    def test_config_default_matching_definition_is_dropped(self):
         reg = _make_registry([
             _make_setting("a", default_value=5.0),
         ])
-        # config.ini sets a=5.0 (same as definition) — should still be sent
+        # config default matches definition — not forced, so should be dropped
         result = resolve_settings(reg, {"a": "5.0"}, {})
+        assert "a" not in result
+
+    def test_forced_key_kept_even_if_matches_definition(self):
+        reg = _make_registry([
+            _make_setting("a", default_value=5.0),
+        ])
+        # forced key matches definition — should still be sent
+        result = resolve_settings(reg, {"a": "5.0"}, {}, forced_keys={"a"})
         assert result["a"] == "5.0"

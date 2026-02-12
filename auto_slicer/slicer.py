@@ -19,11 +19,13 @@ def resolve_settings(
     registry: SettingsRegistry,
     config_defaults: dict[str, str],
     overrides: dict[str, str],
+    forced_keys: set[str] = frozenset(),
 ) -> dict[str, str]:
     """Evaluate all expressions and return a flat string dict for CuraEngine.
 
     Merges config defaults, user overrides, and computed values.
     User overrides take highest priority; computed values fill in the rest.
+    Keys in forced_keys are always sent even if they match the definition default.
     """
     pinned = merge_settings(config_defaults, overrides)
     result = evaluate_expressions(registry, pinned, config_defaults)
@@ -36,7 +38,7 @@ def resolve_settings(
     # Drop values that match the definition default — no need to send them
     for key in list(resolved):
         defn = registry.get(key)
-        if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in config_defaults:
+        if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
 
     return resolved
@@ -70,7 +72,7 @@ def build_cura_command(
 
 def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
     """Slice an STL file and return (success, message, archive_path)."""
-    active_settings = resolve_settings(config.registry, config.defaults, overrides)
+    active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
     gcode_path = stl_path.with_suffix(".gcode")
 
     cmd = build_cura_command(
