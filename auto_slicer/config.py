@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .defaults import BOUNDS_OVERRIDES, DEFAULT_SETTINGS, FORCED_SETTINGS
+from .defaults import SETTINGS, extract_bounds_overrides, extract_defaults, extract_forced_keys
 from .settings_registry import SettingsRegistry, load_registry
 
 
@@ -31,15 +31,31 @@ def _parse_allowed_users(raw: str) -> set[int]:
     return set(int(x) for x in raw.split(",") if x.strip())
 
 
-def _apply_bounds_overrides(registry: SettingsRegistry, config_section) -> None:
-    """Apply bounds overrides from config (e.g. retraction_amount.maximum_value = 4)."""
+BOUNDS_FIELD_NAMES = (
+    "minimum_value", "maximum_value",
+    "minimum_value_warning", "maximum_value_warning",
+)
+
+
+def _apply_bounds(registry: SettingsRegistry, overrides: dict[str, dict[str, float]]) -> None:
+    """Apply nested bounds overrides {key: {field: value}} from defaults.py."""
+    for key, fields in overrides.items():
+        defn = registry.get(key)
+        if not defn:
+            continue
+        for field_name, value in fields.items():
+            if field_name in BOUNDS_FIELD_NAMES:
+                setattr(defn, field_name, float(value))
+
+
+def _apply_bounds_from_ini(registry: SettingsRegistry, config_section) -> None:
+    """Apply flat bounds overrides from config.ini (e.g. retraction_amount.maximum_value = 4)."""
     for entry, value in config_section.items():
         if "." not in entry:
             continue
         key, field_name = entry.rsplit(".", 1)
         defn = registry.get(key)
-        if defn and field_name in ("minimum_value", "maximum_value",
-                                   "minimum_value_warning", "maximum_value_warning"):
+        if defn and field_name in BOUNDS_FIELD_NAMES:
             setattr(defn, field_name, float(value))
 
 
@@ -49,11 +65,10 @@ def load_config(config) -> Config:
     cura_bin = Path(config["PATHS"]["cura_engine_path"])
     def_dir = Path(config["PATHS"]["definition_dir"])
     printer_def = config["PATHS"]["printer_definition"]
-    defaults = dict(DEFAULT_SETTINGS)
-    defaults.update(FORCED_SETTINGS)
+    defaults = extract_defaults(SETTINGS)
     if config.has_section("DEFAULT_SETTINGS"):
         defaults.update(config["DEFAULT_SETTINGS"])
-    forced_keys = set(FORCED_SETTINGS)
+    forced_keys = extract_forced_keys(SETTINGS)
     telegram_token = config["TELEGRAM"]["bot_token"]
 
     allowed = config["TELEGRAM"].get("allowed_users", "").strip()
@@ -67,9 +82,9 @@ def load_config(config) -> Config:
     api_base_url = config["TELEGRAM"].get("api_base_url", "").strip()
 
     registry = load_registry(def_dir, printer_def)
-    _apply_bounds_overrides(registry, BOUNDS_OVERRIDES)
+    _apply_bounds(registry, extract_bounds_overrides(SETTINGS))
     if config.has_section("BOUNDS_OVERRIDES"):
-        _apply_bounds_overrides(registry, config["BOUNDS_OVERRIDES"])
+        _apply_bounds_from_ini(registry, config["BOUNDS_OVERRIDES"])
 
     return Config(
         archive_dir=archive_dir,

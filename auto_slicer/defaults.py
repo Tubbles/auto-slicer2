@@ -2,32 +2,74 @@
 
 config.ini keeps only machine-specific paths and secrets.
 Any [DEFAULT_SETTINGS] or [BOUNDS_OVERRIDES] in config.ini are merged on top.
+
+SETTINGS uses Cura-style subkeys:
+  default_value  — value to send to CuraEngine
+  forced         — always send even if it matches the definition default
+  maximum_value, minimum_value, etc. — bounds overrides
 """
 
-DEFAULT_SETTINGS: dict[str, str] = {
-    "layer_height": "0.2",
-    "fill_density": "15",
+SETTINGS: dict[str, dict] = {
+    "layer_height": {
+        "default_value": "0.2",
+    },
+    "fill_density": {
+        "default_value": "15",
+    },
     # All-metal heat break: keep retraction short to avoid jams
-    "retraction_amount": "4",
+    "retraction_amount": {
+        "default_value": "4",
+        "maximum_value": 4,
+    },
     # Cooling fan always at 100%
-    "cool_fan_speed": "100",
-    "cool_fan_speed_min": "100",
-    "cool_fan_speed_max": "100",
-    "cool_fan_speed_0": "100",
+    "cool_fan_speed": {
+        "default_value": "100",
+    },
+    "cool_fan_speed_min": {
+        "default_value": "100",
+    },
+    "cool_fan_speed_max": {
+        "default_value": "100",
+    },
+    "cool_fan_speed_0": {
+        "default_value": "100",
+    },
+    # Ensure roofing/flooring layers are always passed to CuraEngine
+    "roofing_layer_count": {
+        "default_value": "0",
+        "forced": True,
+    },
+    "flooring_layer_count": {
+        "default_value": "0",
+        "forced": True,
+    },
 }
 
-# Settings that are always sent to CuraEngine even if they match the definition
-# default. Use this for settings where CuraEngine's built-in default is wrong or
-# where omitting the flag changes behavior.
-FORCED_SETTINGS: dict[str, str] = {
-    "roofing_layer_count": "0",
-    "flooring_layer_count": "0",
-}
+BOUNDS_FIELDS = (
+    "minimum_value", "maximum_value",
+    "minimum_value_warning", "maximum_value_warning",
+)
 
-BOUNDS_OVERRIDES: dict[str, float] = {
-    # All-metal heat break: never retract more than 4 mm
-    "retraction_amount.maximum_value": 4,
-}
+
+def extract_defaults(settings: dict[str, dict]) -> dict[str, str]:
+    """Extract {key: default_value} for all settings with a default_value."""
+    return {k: v["default_value"] for k, v in settings.items() if "default_value" in v}
+
+
+def extract_forced_keys(settings: dict[str, dict]) -> set[str]:
+    """Extract the set of keys marked as forced."""
+    return {k for k, v in settings.items() if v.get("forced")}
+
+
+def extract_bounds_overrides(settings: dict[str, dict]) -> dict[str, dict[str, float]]:
+    """Extract {key: {field: value}} for settings with bounds overrides."""
+    result = {}
+    for key, v in settings.items():
+        bounds = {f: v[f] for f in BOUNDS_FIELDS if f in v}
+        if bounds:
+            result[key] = bounds
+    return result
+
 
 PRESETS: dict[str, dict] = {
     "draft": {

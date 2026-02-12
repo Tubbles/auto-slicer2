@@ -48,7 +48,7 @@ python auto-slicer2.py -c /path/to/config.ini
 ```
 auto_slicer/
   __init__.py              # empty
-  defaults.py              # DEFAULT_SETTINGS, BOUNDS_OVERRIDES, PRESETS (checked-in data)
+  defaults.py              # SETTINGS (Cura-style per-key config), PRESETS
   config.py                # Config class, permission checks
   slicer.py                # slice_file()
   handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
@@ -73,7 +73,7 @@ tests/
 
 ### Key Components
 
-**Defaults** (`defaults.py`): Plain data dicts — `DEFAULT_SETTINGS`, `BOUNDS_OVERRIDES`, and `PRESETS`. No logic. Version-controlled printer configuration.
+**Defaults** (`defaults.py`): `SETTINGS` dict with Cura-style subkeys (`default_value`, `forced`, `maximum_value`, etc.) and `PRESETS`. Pure extractor functions derive flat dicts for config.py.
 
 **Config** (`config.py`): Loads paths and Telegram token from config.ini, merges checked-in defaults from `defaults.py` with any config.ini overrides. Creates a `SettingsRegistry` at init time. Permission model: `allowed_users` from config.ini (empty = nobody allowed).
 
