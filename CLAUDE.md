@@ -48,6 +48,7 @@ python auto-slicer2.py -c /path/to/config.ini
 ```
 auto_slicer/
   __init__.py              # empty
+  defaults.py              # DEFAULT_SETTINGS, BOUNDS_OVERRIDES, PRESETS (checked-in data)
   config.py                # Config class, permission checks
   slicer.py                # slice_file()
   handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
@@ -55,7 +56,7 @@ auto_slicer/
   settings_match.py        # resolve_setting() fuzzy/natural language resolution
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
-  presets.py               # BUILTIN_PRESETS + load_presets()
+  presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
   web_auth.py              # Telegram initData HMAC-SHA256 validation
   web_api.py               # aiohttp HTTP API for Mini App
 auto-slicer2.py            # thin entry point (argparse, app wiring)
@@ -72,7 +73,9 @@ tests/
 
 ### Key Components
 
-**Config** (`config.py`): Loads paths, defaults, and Telegram token from config.ini. Creates a `SettingsRegistry` at init time. Permission model: `allowed_users` from config.ini (empty = nobody allowed).
+**Defaults** (`defaults.py`): Plain data dicts — `DEFAULT_SETTINGS`, `BOUNDS_OVERRIDES`, and `PRESETS`. No logic. Version-controlled printer configuration.
+
+**Config** (`config.py`): Loads paths and Telegram token from config.ini, merges checked-in defaults from `defaults.py` with any config.ini overrides. Creates a `SettingsRegistry` at init time. Permission model: `allowed_users` from config.ini (empty = nobody allowed).
 
 **SettingsRegistry** (`settings_registry.py`): Loads CuraEngine's fdmprinter.def.json, flattens the nested settings tree, follows the inherits chain (e.g. creality_ender3 → creality_base → fdmprinter), and builds label→key indexes.
 
@@ -82,7 +85,7 @@ tests/
 
 **Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. Used for webapp preview only — CuraEngine evaluates its own expressions at slice time. Exposed via `POST /api/evaluate`.
 
-**Presets** (`presets.py`): `BUILTIN_PRESETS` dict (draft/standard/fine/strong) and `load_presets()` which merges in optional custom presets from presets.json.
+**Presets** (`presets.py`): Re-exports `BUILTIN_PRESETS` from `defaults.py` and provides `load_presets()` which merges in optional custom presets from presets.json.
 
 **Per-user settings**: `user_settings` dict in handlers.py stores overrides keyed by Telegram user ID. File-backed via `user_settings.json` — persisted on every mutation, loaded on startup. Modified via the Mini App web API.
 
@@ -100,9 +103,10 @@ tests/
 ## Configuration (config.ini)
 
 - `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition
-- `[DEFAULT_SETTINGS]`: CuraEngine setting key-value pairs
 - `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = nobody), notify_chat_id, api_port, webapp_url, api_base_url
-- `[BOUNDS_OVERRIDES]`: Override hard/warning bounds on specific settings (e.g. `retraction_amount.maximum_value = 4`)
+
+Slicer defaults and bounds overrides live in `auto_slicer/defaults.py` (version-controlled).
+Optional `[DEFAULT_SETTINGS]` and `[BOUNDS_OVERRIDES]` sections in config.ini merge on top of the checked-in values.
 
 ## Git Workflow
 

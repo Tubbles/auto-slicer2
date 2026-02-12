@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .defaults import BOUNDS_OVERRIDES, DEFAULT_SETTINGS
 from .settings_registry import SettingsRegistry, load_registry
 
 
@@ -47,7 +48,9 @@ def load_config(config) -> Config:
     cura_bin = Path(config["PATHS"]["cura_engine_path"])
     def_dir = Path(config["PATHS"]["definition_dir"])
     printer_def = config["PATHS"]["printer_definition"]
-    defaults = dict(config["DEFAULT_SETTINGS"])
+    defaults = dict(DEFAULT_SETTINGS)
+    if config.has_section("DEFAULT_SETTINGS"):
+        defaults.update(config["DEFAULT_SETTINGS"])
     telegram_token = config["TELEGRAM"]["bot_token"]
 
     allowed = config["TELEGRAM"].get("allowed_users", "").strip()
@@ -61,6 +64,7 @@ def load_config(config) -> Config:
     api_base_url = config["TELEGRAM"].get("api_base_url", "").strip()
 
     registry = load_registry(def_dir, printer_def)
+    _apply_bounds_overrides(registry, BOUNDS_OVERRIDES)
     if config.has_section("BOUNDS_OVERRIDES"):
         _apply_bounds_overrides(registry, config["BOUNDS_OVERRIDES"])
 
