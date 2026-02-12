@@ -60,20 +60,40 @@
     border-color: var(--btn);
   }
 
-  .presets {
-    display: flex; gap: 6px; flex-wrap: wrap;
-    padding: 4px 0 8px;
+  .preset-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--secondary-bg);
+    gap: 8px;
+    cursor: pointer;
   }
-  .preset-btn {
-    padding: 6px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--link);
-    background: transparent;
-    color: var(--link);
+  .preset-row .setting-info { flex: 1; min-width: 0; }
+  .preset-row .setting-label { font-size: 14px; font-weight: 500; }
+  .preset-row .setting-desc {
+    font-size: 12px;
+    color: var(--hint);
+    margin-top: 2px;
+    display: none;
+  }
+  .preset-row .setting-desc.show { display: block; }
+  .preset-detail-item {
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text);
+    padding: 2px 0;
+  }
+  .preset-apply-btn {
+    margin-top: 8px;
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: none;
+    background: var(--btn);
+    color: var(--btn-text);
     font-size: 13px;
     cursor: pointer;
   }
-  .preset-btn:active { opacity: 0.7; }
+  .preset-apply-btn:active { opacity: 0.7; }
 
   .clear-all-btn {
     padding: 6px 14px;
@@ -274,10 +294,11 @@
 <div class="tabs">
   <button class="tab active" data-filter="starred">Starred</button>
   <button class="tab" data-filter="modified">Modified</button>
+  <button class="tab" data-filter="presets">Presets</button>
   <button class="tab" data-filter="all">All</button>
 </div>
 
-<div class="presets" id="presets"></div>
+<div id="presets-container" style="display:none"></div>
 
 <div id="settings-container">
   <div class="loading" id="loading">Loading settings...</div>
@@ -737,11 +758,23 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     currentFilter = tab.dataset.filter;
-    applyFilter();
+
+    const isPresets = currentFilter === 'presets';
+    document.getElementById('settings-container').style.display = isPresets ? 'none' : '';
+    document.getElementById('presets-container').style.display = isPresets ? '' : 'none';
+    document.querySelector('.search-bar').style.display = isPresets ? 'none' : '';
+
+    if (isPresets) {
+      renderPresetsTab();
+    } else {
+      applyFilter();
+    }
   });
 });
 
 function applyFilter() {
+  if (currentFilter === 'presets') return;
+
   const query = document.getElementById('search').value.toLowerCase().trim();
   const settings = document.querySelectorAll('.setting');
   const headers = document.querySelectorAll('.category-header');
@@ -772,29 +805,84 @@ function applyFilter() {
 
 // --- Presets ---
 
-function renderPresets() {
-  const container = document.getElementById('presets');
+function resolveSettingLabel(key) {
+  if (!registry) return key;
+  const s = registry.settings.find(x => x.key === key);
+  return s ? s.label : key;
+}
+
+function renderPresetsTab() {
+  const container = document.getElementById('presets-container');
   container.innerHTML = '';
   if (!registry || !registry.presets) return;
 
   for (const [name, preset] of Object.entries(registry.presets)) {
-    const btn = document.createElement('button');
-    btn.className = 'preset-btn';
-    btn.textContent = name.charAt(0).toUpperCase() + name.slice(1);
-    btn.title = preset.description || '';
-    btn.addEventListener('click', () => {
-      for (const [k, v] of Object.entries(preset.settings)) {
-        pendingChanges[k] = String(v);
-      }
-      render();
-      haptic();
-      scheduleRecompute();
-      setStatus(`Preset '${name}' staged`);
-    });
-    container.appendChild(btn);
+    container.appendChild(buildPresetRow(name, preset));
   }
 
   renderClearAllBtn(container);
+}
+
+function buildPresetRow(name, preset) {
+  const row = document.createElement('div');
+  row.className = 'preset-row';
+
+  const info = document.createElement('div');
+  info.className = 'setting-info';
+
+  const label = document.createElement('div');
+  label.className = 'setting-label';
+  label.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+
+  const desc = document.createElement('div');
+  desc.className = 'setting-desc';
+
+  if (preset.description) {
+    const descText = document.createElement('div');
+    descText.textContent = preset.description;
+    descText.style.marginBottom = '6px';
+    desc.appendChild(descText);
+  }
+
+  for (const [k, v] of Object.entries(preset.settings)) {
+    const item = document.createElement('div');
+    item.className = 'preset-detail-item';
+    item.textContent = `${resolveSettingLabel(k)}: ${v}`;
+    desc.appendChild(item);
+  }
+
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'preset-apply-btn';
+  applyBtn.textContent = 'Apply';
+  applyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    for (const [k, v] of Object.entries(preset.settings)) {
+      pendingChanges[k] = String(v);
+    }
+    // Switch to Modified tab
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    const modTab = document.querySelector('.tab[data-filter="modified"]');
+    if (modTab) modTab.classList.add('active');
+    currentFilter = 'modified';
+    document.getElementById('settings-container').style.display = '';
+    document.getElementById('presets-container').style.display = 'none';
+    document.querySelector('.search-bar').style.display = '';
+
+    render();
+    haptic();
+    scheduleRecompute();
+    setStatus(`Preset '${name}' staged`);
+  });
+  desc.appendChild(applyBtn);
+
+  info.append(label, desc);
+  row.appendChild(info);
+
+  row.addEventListener('click', () => {
+    desc.classList.toggle('show');
+  });
+
+  return row;
 }
 
 function renderClearAllBtn(container) {
@@ -805,13 +893,14 @@ function renderClearAllBtn(container) {
   btn.className = 'clear-all-btn';
   btn.textContent = 'Clear All';
   btn.title = 'Remove all overrides';
+  btn.style.margin = '12px 0';
   btn.addEventListener('click', async () => {
     try {
       await deleteSettings();
       overrides = {};
       pendingChanges = {};
       render();
-      renderPresets();
+      renderPresetsTab();
       recompute();
       haptic();
       setStatus('All overrides cleared');
@@ -901,7 +990,7 @@ async function init() {
     reverseDeps = reg.reverse_deps || {};
 
     document.getElementById('loading').remove();
-    renderPresets();
+    renderPresetsTab();
     render();
     recompute();
   } catch (e) {
