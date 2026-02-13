@@ -11,9 +11,9 @@ from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
-    format_metadata_comments, inject_metadata, matching_presets,
-    merge_settings, parse_gcode_header, patch_gcode_header,
-    resolve_settings, slice_file,
+    format_metadata_comments, format_settings_summary, inject_metadata,
+    matching_presets, merge_settings, parse_gcode_header,
+    patch_gcode_header, resolve_settings, slice_file,
 )
 
 
@@ -399,6 +399,24 @@ class TestMatchingPresets:
 
     def test_empty_overrides(self):
         assert matching_presets({}, self.PRESETS) == []
+
+
+class TestFormatSettingsSummary:
+    def test_override_lines(self):
+        result = format_settings_summary({"layer_height": "0.2", "speed_print": "60"}, {})
+        assert "layer_height = 0.2\n" in result
+        assert "speed_print = 60\n" in result
+
+    def test_preset_lines(self):
+        presets = {"PETG": {"settings": {"material_print_temperature": "235"}}}
+        result = format_settings_summary({"material_print_temperature": "235"}, presets)
+        assert "preset: PETG\n" in result
+
+    def test_skips_multiline_values(self):
+        assert format_settings_summary({"gcode": "line1\nline2"}, {}) == ""
+
+    def test_empty_overrides(self):
+        assert format_settings_summary({}, {}) == ""
 
 
 class TestFormatMetadataComments:

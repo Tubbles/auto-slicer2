@@ -94,6 +94,18 @@ def matching_presets(overrides: dict[str, str], presets: dict[str, dict]) -> lis
     ]
 
 
+def format_settings_summary(overrides: dict[str, str], presets: dict[str, dict]) -> str:
+    """Format override settings and matching presets as plain text for settings.txt."""
+    lines = []
+    for name in matching_presets(overrides, presets):
+        lines.append(f"preset: {name}")
+    for key, value in sorted(overrides.items()):
+        if "\n" in value or len(value) > 100:
+            continue
+        lines.append(f"{key} = {value}")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
 def format_metadata_comments(overrides: dict[str, str], presets: dict[str, dict]) -> str:
     """Format override settings and matching presets as gcode comment lines."""
     lines = []
@@ -242,7 +254,8 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             except Exception as e:
                 print(f"[Thumbnail] Skipped: {e}")
 
-            inject_metadata(gcode_path, overrides, load_presets())
+            presets = load_presets()
+            inject_metadata(gcode_path, overrides, presets)
 
             job_folder = archive_folder or config.archive_dir / f"{stl_path.stem}_{time.strftime('%Y%m%d_%H%M%S')}"
             job_folder.mkdir(parents=True, exist_ok=True)
@@ -250,6 +263,11 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             shutil.move(str(stl_path), job_folder / stl_path.name)
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
+
+            summary = format_settings_summary(overrides, presets)
+            if summary:
+                (job_folder / "settings.txt").write_text(summary)
+
             print(f"[Success] Archived to {job_folder}")
             return True, "Slicing completed successfully", job_folder
         else:

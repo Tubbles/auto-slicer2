@@ -101,8 +101,10 @@ tests/
 2. User sends STL file as document
 3. Bot downloads to temp directory
 4. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
-5. On success: archives STL+gcode to timestamped subfolder, notifies user with path
+5. On success: archives STL+gcode+settings.txt to timestamped subfolder, notifies user with path
 6. On failure: moves STL to `archive/errors/`, sends error message
+
+KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 
 ## Configuration (config.ini)
 
