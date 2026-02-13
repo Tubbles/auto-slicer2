@@ -96,7 +96,7 @@
   .preset-apply-btn:active { opacity: 0.7; }
 
   .clear-all-btn {
-    padding: 6px 14px;
+    padding: 4px 12px;
     border-radius: 16px;
     border: 1px solid #e53935;
     background: transparent;
@@ -296,9 +296,8 @@
   <button class="tab" data-filter="modified">Modified</button>
   <button class="tab" data-filter="presets">Presets</button>
   <button class="tab" data-filter="all">All</button>
+  <span id="clear-all-container"></span>
 </div>
-
-<div id="clear-all-container"></div>
 
 <div id="presets-container" style="display:none"></div>
 
@@ -896,7 +895,6 @@ function renderClearAllBtn() {
   btn.className = 'clear-all-btn';
   btn.textContent = 'Clear All';
   btn.title = 'Remove all overrides';
-  btn.style.margin = '4px 0 8px';
   btn.addEventListener('click', async () => {
     try {
       await deleteSettings();
