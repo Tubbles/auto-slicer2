@@ -299,8 +299,9 @@ class TestRealCuraExpressions:
     def test_bottom_layers_computed(self, real_registry):
         result = evaluate_expressions(real_registry, {}, {})
         assert "bottom_layers" in result.values
-        # Ender 3: layer_height=0.1, bottom_thickness→top_bottom_thickness=0.6 → 6 layers
-        assert result.values["bottom_layers"] == 6
+        # layer_height_0 = layer_height (0.2), top_bottom_thickness = 0.2 + 0.2*3 = 0.8
+        # bottom_layers = ceil(0.8 / 0.2) = 4
+        assert result.values["bottom_layers"] == 4
 
     def test_layer_height_change_propagates(self, real_registry):
         result = evaluate_expressions(real_registry, {"layer_height": "0.3"}, {})

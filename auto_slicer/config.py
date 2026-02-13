@@ -2,7 +2,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .defaults import SETTINGS, extract_bounds_overrides, extract_defaults, extract_forced_keys
+from .defaults import (
+    SETTINGS, extract_bounds_overrides, extract_defaults,
+    extract_expression_overrides, extract_forced_keys,
+)
 from .settings_registry import SettingsRegistry, load_registry
 
 
@@ -48,6 +51,14 @@ def _apply_bounds(registry: SettingsRegistry, overrides: dict[str, dict[str, flo
                 setattr(defn, field_name, float(value))
 
 
+def _apply_expressions(registry: SettingsRegistry, overrides: dict[str, str]) -> None:
+    """Apply value_expression overrides from defaults.py to registry definitions."""
+    for key, expr in overrides.items():
+        defn = registry.get(key)
+        if defn:
+            defn.value_expression = expr
+
+
 def _apply_bounds_from_ini(registry: SettingsRegistry, config_section) -> None:
     """Apply flat bounds overrides from config.ini (e.g. retraction_amount.maximum_value = 4)."""
     for entry, value in config_section.items():
@@ -82,6 +93,7 @@ def load_config(config) -> Config:
     api_base_url = config["TELEGRAM"].get("api_base_url", "").strip()
 
     registry = load_registry(def_dir, printer_def)
+    _apply_expressions(registry, extract_expression_overrides(SETTINGS))
     _apply_bounds(registry, extract_bounds_overrides(SETTINGS))
     if config.has_section("BOUNDS_OVERRIDES"):
         _apply_bounds_from_ini(registry, config["BOUNDS_OVERRIDES"])

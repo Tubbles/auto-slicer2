@@ -13,6 +13,9 @@ SETTINGS: dict[str, dict] = {
     "layer_height": {
         "default_value": "0.2",
     },
+    "layer_height_0": {
+        "value_expression": "layer_height",
+    },
     "infill_sparse_density": {
         "default_value": "15",
     },
@@ -111,6 +114,11 @@ def extract_defaults(settings: dict[str, dict]) -> dict[str, str]:
 def extract_forced_keys(settings: dict[str, dict]) -> set[str]:
     """Extract the set of keys marked as forced."""
     return {k for k, v in settings.items() if v.get("forced")}
+
+
+def extract_expression_overrides(settings: dict[str, dict]) -> dict[str, str]:
+    """Extract {key: expression} for settings with value_expression overrides."""
+    return {k: v["value_expression"] for k, v in settings.items() if "value_expression" in v}
 
 
 def extract_bounds_overrides(settings: dict[str, dict]) -> dict[str, dict[str, float]]:
