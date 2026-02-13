@@ -84,7 +84,6 @@
     padding: 2px 0;
   }
   .preset-apply-btn {
-    margin-top: 8px;
     padding: 6px 16px;
     border-radius: 8px;
     border: none;
@@ -92,6 +91,8 @@
     color: var(--btn-text);
     font-size: 13px;
     cursor: pointer;
+    flex-shrink: 0;
+    align-self: center;
   }
   .preset-apply-btn:active { opacity: 0.7; }
 
@@ -873,10 +874,9 @@ function buildPresetRow(name, preset) {
     scheduleRecompute();
     setStatus(`Preset '${name}' staged`);
   });
-  desc.appendChild(applyBtn);
 
   info.append(label, desc);
-  row.appendChild(info);
+  row.append(info, applyBtn);
 
   row.addEventListener('click', () => {
     desc.classList.toggle('show');
