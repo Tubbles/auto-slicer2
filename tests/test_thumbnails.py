@@ -126,7 +126,8 @@ def test_render_stl_thumbnail_command(tmp_path):
 
     assert success is True
     cmd = mock_run.call_args[0][0]
-    assert cmd[0] == "openscad"
+    assert cmd[0] == "xvfb-run"
+    assert "openscad" in cmd
     assert "-o" in cmd
     assert str(output_path) in cmd
     assert "--imgsize=300,300" in cmd

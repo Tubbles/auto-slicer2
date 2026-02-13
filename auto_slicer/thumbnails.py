@@ -11,6 +11,7 @@ BASE64_LINE_WIDTH = 78
 def render_stl_thumbnail(stl_path: Path, output_path: Path, width: int, height: int) -> bool:
     """Render an STL file to a PNG thumbnail using OpenSCAD."""
     cmd = [
+        "xvfb-run", "--auto-servernum",
         "openscad",
         "-o", str(output_path),
         f"--imgsize={width},{height}",
