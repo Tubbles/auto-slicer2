@@ -38,7 +38,7 @@ SETTINGS: dict[str, dict] = {
         "default_value": "2",
     },
     "skirt_height": {
-        "default_value": "1",
+        "default_value": "2",
     },
     "center_object": {
         "default_value": "true",
