@@ -16,6 +16,17 @@ def expand_gcode_tokens(gcode: str, settings: dict[str, str]) -> str:
     return re.sub(r"\{(\w+)\}", lambda m: settings.get(m.group(1), m.group(0)), gcode)
 
 
+def find_unknown_gcode_tokens(settings: dict[str, str]) -> dict[str, list[str]]:
+    """Return {gcode_key: [unknown_tokens]} for any unexpanded tokens."""
+    result = {}
+    for key in GCODE_SETTINGS:
+        if key in settings:
+            unknown = re.findall(r"\{(\w+)\}", settings[key])
+            if unknown:
+                result[key] = unknown
+    return result
+
+
 def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[str, str]:
     """Merge default settings with user overrides."""
     result = defaults.copy()
@@ -86,6 +97,14 @@ def build_cura_command(
 def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
     """Slice an STL file and return (success, message, archive_path)."""
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+
+    unknown = find_unknown_gcode_tokens(active_settings)
+    if unknown:
+        msgs = [f"{k}: {', '.join(tokens)}" for k, tokens in unknown.items()]
+        error_msg = "Unknown gcode tokens: " + "; ".join(msgs)
+        print(f"[Error] {error_msg}")
+        return False, error_msg, None
+
     gcode_path = stl_path.with_suffix(".gcode")
 
     cmd = build_cura_command(

@@ -3,7 +3,10 @@
 from pathlib import Path
 
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
-from auto_slicer.slicer import build_cura_command, expand_gcode_tokens, merge_settings, resolve_settings
+from auto_slicer.slicer import (
+    build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
+    merge_settings, resolve_settings,
+)
 
 
 def _make_setting(key, setting_type="float", default_value=0.0, expr=None):
@@ -210,3 +213,27 @@ class TestExpandGcodeTokens:
 
     def test_empty_string(self):
         assert expand_gcode_tokens("", {"a": "1"}) == ""
+
+
+class TestFindUnknownGcodeTokens:
+    def test_no_gcode_settings(self):
+        assert find_unknown_gcode_tokens({"layer_height": "0.2"}) == {}
+
+    def test_all_tokens_resolved(self):
+        settings = {"machine_start_gcode": "M104 S200\nG28"}
+        assert find_unknown_gcode_tokens(settings) == {}
+
+    def test_unknown_tokens_found(self):
+        settings = {"machine_start_gcode": "M104 S{missing_temp}"}
+        result = find_unknown_gcode_tokens(settings)
+        assert result == {"machine_start_gcode": ["missing_temp"]}
+
+    def test_multiple_unknown(self):
+        settings = {"machine_start_gcode": "M140 S{bed}\nM104 S{nozzle}"}
+        result = find_unknown_gcode_tokens(settings)
+        assert result == {"machine_start_gcode": ["bed", "nozzle"]}
+
+    def test_end_gcode(self):
+        settings = {"machine_end_gcode": "M104 S{foo}"}
+        result = find_unknown_gcode_tokens(settings)
+        assert result == {"machine_end_gcode": ["foo"]}
