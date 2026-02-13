@@ -57,6 +57,7 @@ auto_slicer/
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
+  thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
   web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
 auto-slicer2.py            # thin entry point (argparse, app wiring)
@@ -67,6 +68,7 @@ tests/
   test_settings.py         # tests for registry, matcher, validator, presets, persistence
   test_slicer.py           # tests for slicer command building and settings merge
   test_eval.py             # tests for expression evaluator
+  test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
   test_web_api.py          # tests for web API helpers and endpoints
   test_web_auth.py         # tests for Telegram initData validation
 ```

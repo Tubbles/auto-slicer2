@@ -7,6 +7,7 @@ from pathlib import Path
 from .config import Config
 from .settings_eval import evaluate_expressions
 from .settings_registry import SettingsRegistry
+from .thumbnails import generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 
@@ -126,6 +127,14 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
         print(f"[Exit code] {result.returncode}")
 
         if result.returncode == 0:
+            try:
+                thumb_comments = generate_thumbnails(stl_path, stl_path.parent)
+                if thumb_comments:
+                    inject_thumbnails(gcode_path, thumb_comments)
+                    print("[Thumbnail] Injected thumbnails into gcode")
+            except Exception as e:
+                print(f"[Thumbnail] Skipped: {e}")
+
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             job_folder = config.archive_dir / f"{stl_path.stem}_{timestamp}"
             job_folder.mkdir(parents=True, exist_ok=True)
