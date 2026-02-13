@@ -8,7 +8,7 @@ from .config import Config
 from .presets import load_presets
 from .settings_eval import evaluate_expressions
 from .settings_registry import SettingsRegistry
-from .thumbnails import generate_thumbnails, inject_thumbnails
+from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 
@@ -94,14 +94,28 @@ def matching_presets(overrides: dict[str, str], presets: dict[str, dict]) -> lis
     ]
 
 
-def write_archive_markers(folder: Path, overrides: dict[str, str], presets: dict[str, dict]) -> None:
-    """Create empty marker files in the archive folder for overrides and matching presets."""
-    for key, value in overrides.items():
+def format_metadata_comments(overrides: dict[str, str], presets: dict[str, dict]) -> str:
+    """Format override settings and matching presets as gcode comment lines."""
+    lines = []
+    for name in matching_presets(overrides, presets):
+        lines.append(f"; preset: {name}")
+    for key, value in sorted(overrides.items()):
         if "\n" in value or len(value) > 100:
             continue
-        (folder / f"{key}_{value}").touch()
-    for name in matching_presets(overrides, presets):
-        (folder / f"preset_{name}").touch()
+        lines.append(f"; override: {key} = {value}")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def inject_metadata(gcode_path: Path, overrides: dict[str, str], presets: dict[str, dict]) -> None:
+    """Inject override/preset metadata comments into a gcode file's header."""
+    comments = format_metadata_comments(overrides, presets)
+    if not comments:
+        return
+    lines = gcode_path.read_text().splitlines(keepends=True)
+    pos = find_header_end(lines)
+    header = "".join(lines[:pos])
+    body = "".join(lines[pos:])
+    gcode_path.write_text(header + ";\n" + comments + ";\n" + body)
 
 
 def build_cura_command(
@@ -173,14 +187,14 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             except Exception as e:
                 print(f"[Thumbnail] Skipped: {e}")
 
+            inject_metadata(gcode_path, overrides, load_presets())
+
             job_folder = archive_folder or config.archive_dir / f"{stl_path.stem}_{time.strftime('%Y%m%d_%H%M%S')}"
             job_folder.mkdir(parents=True, exist_ok=True)
 
             shutil.move(str(stl_path), job_folder / stl_path.name)
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
-
-            write_archive_markers(job_folder, overrides, load_presets())
             print(f"[Success] Archived to {job_folder}")
             return True, "Slicing completed successfully", job_folder
         else:
