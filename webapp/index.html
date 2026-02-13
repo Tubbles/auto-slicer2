@@ -439,6 +439,9 @@ function updateComputedDisplay() {
     const isModified = (key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null));
     const isComputed = !isModified && key in computedValues;
 
+    // Keep searchable value in sync
+    el.dataset.value = effectiveValue(s).toLowerCase();
+
     // Update detail line inside expandable desc
     const detail = el.querySelector('.setting-detail');
     if (detail) {
@@ -617,6 +620,7 @@ function buildSettingRow(s) {
   el.dataset.label = s.label.toLowerCase();
   el.dataset.desc = (s.description || '').toLowerCase();
   el.dataset.category = s.category || 'Other';
+  el.dataset.value = effectiveValue(s).toLowerCase();
 
   const pendingNull = s.key in pendingChanges && pendingChanges[s.key] === null;
   const isModified = (s.key in pendingChanges && !pendingNull) || (s.key in overrides && !pendingNull);
@@ -787,7 +791,8 @@ function applyFilter() {
     const matchesSearch = !query ||
       key.includes(query) ||
       el.dataset.label.includes(query) ||
-      el.dataset.desc.includes(query);
+      el.dataset.desc.includes(query) ||
+      el.dataset.value.includes(query);
     const matchesFilter = currentFilter === 'all' ||
       (currentFilter === 'starred' && starredKeys.has(key)) ||
       (currentFilter === 'modified' && ((key in pendingChanges && pendingChanges[key] !== null) || (key in overrides && !(key in pendingChanges && pendingChanges[key] === null))));
