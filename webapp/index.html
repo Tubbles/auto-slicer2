@@ -298,6 +298,8 @@
   <button class="tab" data-filter="all">All</button>
 </div>
 
+<div id="clear-all-container"></div>
+
 <div id="presets-container" style="display:none"></div>
 
 <div id="settings-container">
@@ -606,6 +608,7 @@ function render() {
 
   applyFilter();
   updateMainButton();
+  renderClearAllBtn();
 }
 
 function buildSettingRow(s) {
@@ -819,8 +822,6 @@ function renderPresetsTab() {
   for (const [name, preset] of Object.entries(registry.presets)) {
     container.appendChild(buildPresetRow(name, preset));
   }
-
-  renderClearAllBtn(container);
 }
 
 function buildPresetRow(name, preset) {
@@ -885,7 +886,9 @@ function buildPresetRow(name, preset) {
   return row;
 }
 
-function renderClearAllBtn(container) {
+function renderClearAllBtn() {
+  const container = document.getElementById('clear-all-container');
+  container.innerHTML = '';
   const hasOverrides = Object.keys(overrides).length > 0 || Object.keys(pendingChanges).length > 0;
   if (!hasOverrides) return;
 
@@ -893,14 +896,14 @@ function renderClearAllBtn(container) {
   btn.className = 'clear-all-btn';
   btn.textContent = 'Clear All';
   btn.title = 'Remove all overrides';
-  btn.style.margin = '12px 0';
+  btn.style.margin = '4px 0 8px';
   btn.addEventListener('click', async () => {
     try {
       await deleteSettings();
       overrides = {};
       pendingChanges = {};
       render();
-      renderPresetsTab();
+      renderClearAllBtn();
       recompute();
       haptic();
       setStatus('All overrides cleared');
