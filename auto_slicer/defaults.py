@@ -47,14 +47,15 @@ SETTINGS: dict[str, dict] = {
     "material_bed_temp_prepend": {
         "default_value": "false",
     },
-    # Start gcode: heat bed+nozzle simultaneously, home, purge line
+    # Start gcode: heat both, home during heat-up, park high to avoid ooze
     "machine_start_gcode": {
         "default_value": (
             "M140 S{material_bed_temperature} ;Start bed heating\n"
             "M104 S{material_print_temperature} ;Start nozzle heating\n"
+            "G28 ;Home all axes\n"
+            "G1 X0 Y0 Z100 F3000 ;Park away from bed\n"
             "M190 S{material_bed_temperature} ;Wait for bed\n"
             "M109 S{material_print_temperature} ;Wait for nozzle\n"
-            "G28 ;Home all axes\n"
             "G92 E0 ;Reset Extruder\n"
             "G1 Z2.0 F3000 ;Move Z Axis up\n"
             "G1 X0.1 Y20 Z0.3 F5000.0 ;Move to start position\n"
