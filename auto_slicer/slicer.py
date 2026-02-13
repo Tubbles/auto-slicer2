@@ -229,7 +229,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
         print(f"[Exit code] {result.returncode}")
 
         if result.returncode == 0:
-            header = parse_gcode_header(result.stderr)
+            header = parse_gcode_header(result.stdout + "\n" + result.stderr)
             if header:
                 patch_gcode_header(gcode_path, header)
                 print(f"[Header] Patched gcode header with {len(header)} values")
