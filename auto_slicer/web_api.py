@@ -19,7 +19,8 @@ from .settings_eval import build_dep_graph, build_reverse_deps, evaluate_express
 from .settings_registry import SettingDefinition
 from .settings_validate import validate
 
-TOKEN_TTL = 1800  # 30 minutes
+TOKEN_TTL = 1800  # 30-minute sliding window
+TOKEN_MAX_TTL = 86400  # 24-hour absolute maximum
 
 
 def generate_token() -> str:
@@ -32,19 +33,23 @@ def validate_token(tokens: dict, token_str: str) -> int | None:
     entry = tokens.get(token_str)
     if entry is None:
         return None
-    user_id, expiry = entry
-    if time.time() > expiry:
+    user_id, expiry, created = entry
+    now = time.time()
+    if now > expiry or now > created + TOKEN_MAX_TTL:
         del tokens[token_str]
         return None
-    # Refresh sliding TTL
-    tokens[token_str] = (user_id, time.time() + TOKEN_TTL)
+    # Refresh sliding TTL (created stays the same)
+    tokens[token_str] = (user_id, time.time() + TOKEN_TTL, created)
     return user_id
 
 
 def cleanup_expired(tokens: dict) -> None:
     """Remove all expired tokens from the dict."""
     now = time.time()
-    expired = [k for k, (_, expiry) in tokens.items() if now > expiry]
+    expired = [
+        k for k, (_, expiry, created) in tokens.items()
+        if now > expiry or now > created + TOKEN_MAX_TTL
+    ]
     for k in expired:
         del tokens[k]
 

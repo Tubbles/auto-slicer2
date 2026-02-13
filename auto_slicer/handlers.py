@@ -101,7 +101,8 @@ async def webapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     token = generate_token()
     tokens = context.bot_data["tokens"]
-    tokens[token] = (update.effective_user.id, time.time() + TOKEN_TTL)
+    now = time.time()
+    tokens[token] = (update.effective_user.id, now + TOKEN_TTL, now)
 
     url = f"{config.webapp_url}?api={config.api_base_url}&token={token}"
     button = InlineKeyboardButton("Open Settings", web_app=WebAppInfo(url=url))

@@ -11,7 +11,7 @@ from auto_slicer.config import Config
 from auto_slicer.web_api import (
     _setting_to_dict, _build_registry_response, _validate_overrides,
     create_web_app, generate_token, validate_token, cleanup_expired,
-    TOKEN_TTL,
+    TOKEN_TTL, TOKEN_MAX_TTL,
 )
 
 
@@ -63,7 +63,7 @@ def _make_config(settings: dict[str, SettingDefinition] | None = None) -> Config
 def _add_token(app, user_id: int = 42) -> str:
     """Generate a token, store it in the app, and return it."""
     token = generate_token()
-    app["tokens"][token] = (user_id, time.time() + TOKEN_TTL)
+    app["tokens"][token] = (user_id, time.time() + TOKEN_TTL, time.time())
     return token
 
 
@@ -277,21 +277,29 @@ class TestGenerateToken:
 
 class TestValidateToken:
     def test_valid_token(self):
-        tokens = {}
-        tokens["abc"] = (42, time.time() + 600)
+        now = time.time()
+        tokens = {"abc": (42, now + 600, now)}
         assert validate_token(tokens, "abc") == 42
 
     def test_refreshes_ttl(self):
-        tokens = {}
-        old_expiry = time.time() + 10
-        tokens["abc"] = (42, old_expiry)
+        now = time.time()
+        old_expiry = now + 10
+        tokens = {"abc": (42, old_expiry, now)}
         validate_token(tokens, "abc")
-        _, new_expiry = tokens["abc"]
+        _, new_expiry, created = tokens["abc"]
         assert new_expiry > old_expiry
+        assert created == now  # creation time unchanged
 
     def test_expired_token(self):
-        tokens = {}
-        tokens["abc"] = (42, time.time() - 1)
+        now = time.time()
+        tokens = {"abc": (42, now - 1, now - 600)}
+        assert validate_token(tokens, "abc") is None
+        assert "abc" not in tokens
+
+    def test_max_ttl_exceeded(self):
+        now = time.time()
+        created = now - TOKEN_MAX_TTL - 1
+        tokens = {"abc": (42, now + 600, created)}
         assert validate_token(tokens, "abc") is None
         assert "abc" not in tokens
 
@@ -300,15 +308,26 @@ class TestValidateToken:
         assert validate_token(tokens, "nope") is None
 
     def test_cleanup_expired(self):
+        now = time.time()
         tokens = {
-            "good": (1, time.time() + 600),
-            "bad": (2, time.time() - 1),
-            "also_bad": (3, time.time() - 100),
+            "good": (1, now + 600, now),
+            "bad": (2, now - 1, now - 600),
+            "also_bad": (3, now - 100, now - 200),
         }
         cleanup_expired(tokens)
         assert "good" in tokens
         assert "bad" not in tokens
         assert "also_bad" not in tokens
+
+    def test_cleanup_max_ttl(self):
+        now = time.time()
+        tokens = {
+            "fresh": (1, now + 600, now),
+            "ancient": (2, now + 600, now - TOKEN_MAX_TTL - 1),
+        }
+        cleanup_expired(tokens)
+        assert "fresh" in tokens
+        assert "ancient" not in tokens
 
 
 # --- Integration test fixtures ---
@@ -369,7 +388,7 @@ class TestAuthMiddleware:
     async def test_expired_token_401(self, aiohttp_client):
         client = await aiohttp_client(self.app)
         token = "expired-tok"
-        self.app["tokens"][token] = (42, time.time() - 1)
+        self.app["tokens"][token] = (42, time.time() - 1, time.time() - 600)
         resp = await client.get("/api/settings", headers=_bearer(token))
         assert resp.status == 401
 
