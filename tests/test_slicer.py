@@ -11,7 +11,8 @@ from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
-    merge_settings, resolve_settings, slice_file,
+    matching_presets, merge_settings, resolve_settings, slice_file,
+    write_archive_markers,
 )
 
 
@@ -365,3 +366,72 @@ class TestFindStlsInZip:
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             assert _find_stls_in_zip(Path(tmpdir)) == []
+
+
+class TestMatchingPresets:
+    PRESETS = {
+        "draft": {"settings": {"layer_height": "0.3", "speed_print": "80"}},
+        "fine": {"settings": {"layer_height": "0.12", "speed_print": "40"}},
+        "PETG": {"settings": {"material_print_temperature": "235"}},
+    }
+
+    def test_full_match(self):
+        overrides = {"layer_height": "0.3", "speed_print": "80"}
+        assert matching_presets(overrides, self.PRESETS) == ["draft"]
+
+    def test_superset_matches(self):
+        overrides = {"layer_height": "0.3", "speed_print": "80", "infill_sparse_density": "15"}
+        assert "draft" in matching_presets(overrides, self.PRESETS)
+
+    def test_partial_no_match(self):
+        overrides = {"layer_height": "0.3"}
+        assert "draft" not in matching_presets(overrides, self.PRESETS)
+
+    def test_multiple_matches(self):
+        overrides = {"layer_height": "0.3", "speed_print": "80", "material_print_temperature": "235"}
+        result = matching_presets(overrides, self.PRESETS)
+        assert "draft" in result
+        assert "PETG" in result
+
+    def test_no_match(self):
+        assert matching_presets({"layer_height": "0.15"}, self.PRESETS) == []
+
+    def test_empty_overrides(self):
+        assert matching_presets({}, self.PRESETS) == []
+
+
+class TestWriteArchiveMarkers:
+    def test_creates_setting_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            write_archive_markers(folder, {"layer_height": "0.2", "speed_print": "60"}, {})
+            assert (folder / "layer_height_0.2").exists()
+            assert (folder / "speed_print_60").exists()
+
+    def test_creates_preset_files(self):
+        presets = {"PETG": {"settings": {"material_print_temperature": "235"}}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            overrides = {"material_print_temperature": "235"}
+            write_archive_markers(folder, overrides, presets)
+            assert (folder / "preset_PETG").exists()
+
+    def test_skips_multiline_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            write_archive_markers(folder, {"gcode": "line1\nline2"}, {})
+            assert not list(folder.iterdir())
+
+    def test_skips_long_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            write_archive_markers(folder, {"key": "x" * 101}, {})
+            assert not list(folder.iterdir())
+
+    def test_no_preset_file_when_no_match(self):
+        presets = {"draft": {"settings": {"layer_height": "0.3"}}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            write_archive_markers(folder, {"layer_height": "0.2"}, presets)
+            assert not (folder / "preset_draft").exists()
+            assert (folder / "layer_height_0.2").exists()

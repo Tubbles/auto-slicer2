@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from .config import Config
+from .presets import load_presets
 from .settings_eval import evaluate_expressions
 from .settings_registry import SettingsRegistry
 from .thumbnails import generate_thumbnails, inject_thumbnails
@@ -84,6 +85,25 @@ def resolve_settings(
     return resolved
 
 
+def matching_presets(overrides: dict[str, str], presets: dict[str, dict]) -> list[str]:
+    """Return preset names whose settings are all present in overrides with matching values."""
+    return [
+        name for name, preset in presets.items()
+        if preset.get("settings")
+        and all(overrides.get(k) == v for k, v in preset["settings"].items())
+    ]
+
+
+def write_archive_markers(folder: Path, overrides: dict[str, str], presets: dict[str, dict]) -> None:
+    """Create empty marker files in the archive folder for overrides and matching presets."""
+    for key, value in overrides.items():
+        if "\n" in value or len(value) > 100:
+            continue
+        (folder / f"{key}_{value}").touch()
+    for name in matching_presets(overrides, presets):
+        (folder / f"preset_{name}").touch()
+
+
 def build_cura_command(
     cura_bin: Path, def_dir: Path, printer_def: str,
     stl_path: Path, gcode_path: Path, settings: dict[str, str],
@@ -160,6 +180,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
 
+            write_archive_markers(job_folder, overrides, load_presets())
             print(f"[Success] Archived to {job_folder}")
             return True, "Slicing completed successfully", job_folder
         else:
