@@ -118,6 +118,56 @@ def inject_metadata(gcode_path: Path, overrides: dict[str, str], presets: dict[s
     gcode_path.write_text(header + ";\n" + comments + ";\n" + body)
 
 
+def parse_gcode_header(stderr: str) -> dict[str, str]:
+    """Parse the real gcode header values from CuraEngine's stderr.
+
+    CuraEngine logs the correct header after slicing but doesn't update the
+    output file. Format:
+        [...] [info] Gcode header after slicing: ;FLAVOR:Marlin
+        ;TIME:2659
+        ;Filament used: 1.95583m
+        ;Layer height: 0.2
+        ...
+    Returns {";TIME": "2659", ";Filament used": "1.95583m", ...}.
+    """
+    header = {}
+    m = re.search(r"Gcode header after slicing:\s*(;.+)", stderr)
+    if not m:
+        return header
+    # First header line is on the same line as the log message
+    first_line = m.group(1).strip()
+    # Collect all subsequent ;-prefixed lines
+    rest = stderr[m.end():]
+    lines = [first_line] + [
+        line.strip() for line in rest.splitlines()
+        if line.strip().startswith(";") and ":" in line.strip()
+    ]
+    for line in lines:
+        # Stop if we hit a log line (e.g. from our own injection comments)
+        if not line.startswith(";"):
+            break
+        key, _, value = line.partition(":")
+        if value:
+            header[key] = value
+    return header
+
+
+def patch_gcode_header(gcode_path: Path, header: dict[str, str]) -> None:
+    """Replace placeholder header lines in a gcode file with real values."""
+    if not header:
+        return
+    content = gcode_path.read_text()
+    for key, value in header.items():
+        # Match lines like ";TIME:6666" and replace with ";TIME:2659"
+        content = re.sub(
+            re.escape(key) + r":.*",
+            f"{key}:{value}",
+            content,
+            count=1,
+        )
+    gcode_path.write_text(content)
+
+
 def build_cura_command(
     cura_bin: Path, def_dir: Path, printer_def: str,
     stl_path: Path, gcode_path: Path, settings: dict[str, str],
@@ -179,6 +229,11 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
         print(f"[Exit code] {result.returncode}")
 
         if result.returncode == 0:
+            header = parse_gcode_header(result.stderr)
+            if header:
+                patch_gcode_header(gcode_path, header)
+                print(f"[Header] Patched gcode header with {len(header)} values")
+
             try:
                 thumb_comments = generate_thumbnails(stl_path, stl_path.parent)
                 if thumb_comments:

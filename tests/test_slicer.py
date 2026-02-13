@@ -12,7 +12,8 @@ from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _
 from auto_slicer.slicer import (
     build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
     format_metadata_comments, inject_metadata, matching_presets,
-    merge_settings, resolve_settings, slice_file,
+    merge_settings, parse_gcode_header, patch_gcode_header,
+    resolve_settings, slice_file,
 )
 
 
@@ -465,3 +466,92 @@ class TestInjectMetadata:
             content = gcode.read_text()
             assert "; preset: fine" in content
             assert "; override: layer_height = 0.12" in content
+
+
+SAMPLE_STDERR = (
+    "[2026-02-13 14:50:28.851] [info] Gcode header after slicing: ;FLAVOR:Marlin\n"
+    ";TIME:2659\n"
+    ";Filament used: 1.95583m\n"
+    ";Layer height: 0.2\n"
+    ";MINX:76.906\n"
+    ";MINY:81.321\n"
+    ";MINZ:0.2\n"
+    ";MAXX:158.087\n"
+    ";MAXY:153.687\n"
+    ";MAXZ:11\n"
+    ";TARGET_MACHINE.NAME:Creality Ender-3\n"
+    "[2026-02-13 14:50:28.851] [info] Print time (s): 2659\n"
+)
+
+PLACEHOLDER_HEADER = (
+    ";FLAVOR:Marlin\n"
+    ";TIME:6666\n"
+    ";Filament used: 0m\n"
+    ";Layer height: 0.2\n"
+    ";MINX:2.14748e+06\n"
+    ";MINY:2.14748e+06\n"
+    ";MINZ:2.14748e+06\n"
+    ";MAXX:-2.14748e+06\n"
+    ";MAXY:-2.14748e+06\n"
+    ";MAXZ:-2.14748e+06\n"
+    ";TARGET_MACHINE.NAME:Creality Ender-3\n"
+)
+
+
+class TestParseGcodeHeader:
+    def test_parses_time(self):
+        header = parse_gcode_header(SAMPLE_STDERR)
+        assert header[";TIME"] == "2659"
+
+    def test_parses_filament(self):
+        header = parse_gcode_header(SAMPLE_STDERR)
+        assert header[";Filament used"] == " 1.95583m"
+
+    def test_parses_bounds(self):
+        header = parse_gcode_header(SAMPLE_STDERR)
+        assert header[";MINX"] == "76.906"
+        assert header[";MAXX"] == "158.087"
+
+    def test_parses_all_keys(self):
+        header = parse_gcode_header(SAMPLE_STDERR)
+        assert len(header) == 11
+
+    def test_empty_stderr(self):
+        assert parse_gcode_header("") == {}
+
+    def test_no_header_block(self):
+        assert parse_gcode_header("[info] Slicing done\n") == {}
+
+
+class TestPatchGcodeHeader:
+    def test_replaces_placeholders(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gcode = Path(tmpdir) / "test.gcode"
+            gcode.write_text(PLACEHOLDER_HEADER + "\nG28\n")
+            header = parse_gcode_header(SAMPLE_STDERR)
+            patch_gcode_header(gcode, header)
+            content = gcode.read_text()
+            assert ";TIME:2659" in content
+            assert ";TIME:6666" not in content
+            assert ";Filament used: 1.95583m" in content
+            assert ";Filament used: 0m" not in content
+            assert ";MINX:76.906" in content
+            assert "2.14748e+06" not in content
+
+    def test_empty_header_noop(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gcode = Path(tmpdir) / "test.gcode"
+            original = ";FLAVOR:Marlin\nG28\n"
+            gcode.write_text(original)
+            patch_gcode_header(gcode, {})
+            assert gcode.read_text() == original
+
+    def test_preserves_body(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gcode = Path(tmpdir) / "test.gcode"
+            gcode.write_text(PLACEHOLDER_HEADER + "\nG28\nG1 X100\n")
+            header = parse_gcode_header(SAMPLE_STDERR)
+            patch_gcode_header(gcode, header)
+            content = gcode.read_text()
+            assert "G28\n" in content
+            assert "G1 X100\n" in content
