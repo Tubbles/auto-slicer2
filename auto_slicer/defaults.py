@@ -140,4 +140,26 @@ PRESETS: dict[str, dict] = {
             "speed_print": "50",
         },
     },
+    "PLA": {
+        "description": "Temperatures and settings for PLA filament",
+        "settings": {
+            "material_print_temperature": "200",
+            "material_bed_temperature": "60",
+            "cool_fan_speed": "100",
+            "cool_fan_speed_min": "100",
+            "cool_fan_speed_max": "100",
+            "speed_print": "60",
+        },
+    },
+    "PETG": {
+        "description": "Temperatures and settings for PETG filament",
+        "settings": {
+            "material_print_temperature": "235",
+            "material_bed_temperature": "75",
+            "cool_fan_speed": "50",
+            "cool_fan_speed_min": "50",
+            "cool_fan_speed_max": "50",
+            "speed_print": "45",
+        },
+    },
 }
