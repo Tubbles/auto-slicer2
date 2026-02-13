@@ -94,7 +94,10 @@ def matching_presets(overrides: dict[str, str], presets: dict[str, dict]) -> lis
     ]
 
 
-def format_settings_summary(overrides: dict[str, str], presets: dict[str, dict]) -> str:
+def format_settings_summary(
+    overrides: dict[str, str], presets: dict[str, dict],
+    registry: SettingsRegistry | None = None,
+) -> str:
     """Format override settings and matching presets as plain text for settings.txt."""
     lines = []
     for name in matching_presets(overrides, presets):
@@ -102,7 +105,9 @@ def format_settings_summary(overrides: dict[str, str], presets: dict[str, dict])
     for key, value in sorted(overrides.items()):
         if "\n" in value or len(value) > 100:
             continue
-        lines.append(f"{key} = {value}")
+        defn = registry.get(key) if registry else None
+        label = defn.label if defn else key
+        lines.append(f"{label} = {value}")
     return "\n".join(lines) + "\n" if lines else ""
 
 
@@ -264,7 +269,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
 
-            summary = format_settings_summary(overrides, presets)
+            summary = format_settings_summary(overrides, presets, registry=config.registry)
             if summary:
                 (job_folder / "settings.txt").write_text(summary)
 

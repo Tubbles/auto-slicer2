@@ -407,6 +407,25 @@ class TestFormatSettingsSummary:
         assert "layer_height = 0.2\n" in result
         assert "speed_print = 60\n" in result
 
+    def test_uses_labels_when_registry_provided(self):
+        reg = _make_registry([
+            SettingDefinition(key="layer_height", label="Layer Height", description="",
+                              setting_type="float", default_value=0.2),
+            SettingDefinition(key="speed_print", label="Print Speed", description="",
+                              setting_type="float", default_value=60.0),
+        ])
+        result = format_settings_summary(
+            {"layer_height": "0.2", "speed_print": "60"}, {}, registry=reg,
+        )
+        assert "Layer Height = 0.2\n" in result
+        assert "Print Speed = 60\n" in result
+        assert "layer_height" not in result
+        assert "speed_print" not in result
+
+    def test_falls_back_to_key_without_registry(self):
+        result = format_settings_summary({"layer_height": "0.2"}, {})
+        assert "layer_height = 0.2\n" in result
+
     def test_preset_lines(self):
         presets = {"PETG": {"settings": {"material_print_temperature": "235"}}}
         result = format_settings_summary({"material_print_temperature": "235"}, presets)
