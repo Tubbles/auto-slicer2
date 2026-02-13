@@ -202,6 +202,19 @@ class TestResolveSettings:
         assert "{machine_depth}" not in result["machine_end_gcode"]
         assert "G1 Y235 ;Present" in result["machine_end_gcode"]
 
+    def test_gcode_token_from_registry_default(self):
+        """Tokens like {machine_depth} resolve from registry defaults even when
+        the setting isn't in config defaults or overrides."""
+        reg = _make_registry([
+            _make_setting("machine_depth", default_value=235.0),
+            _make_setting("machine_end_gcode", setting_type="str",
+                          default_value="G1 Y{machine_depth} ;Present"),
+        ])
+        result = resolve_settings(reg, {}, {})
+        assert "machine_end_gcode" in result
+        assert "{machine_depth}" not in result["machine_end_gcode"]
+        assert "G1 Y235.0 ;Present" in result["machine_end_gcode"]
+
     def test_gcode_override_wins_over_definition_default(self):
         """When user provides gcode override, it takes priority over definition default."""
         reg = _make_registry([

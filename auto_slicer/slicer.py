@@ -63,11 +63,15 @@ def resolve_settings(
             if defn and defn.default_value is not None:
                 resolved[key] = str(defn.default_value)
 
-    # Expand {setting_name} tokens in gcode BEFORE dropping defaults,
-    # so machine settings like machine_depth are still available.
+    # Build a complete lookup for gcode token expansion: registry defaults
+    # as base, then resolved values on top. This ensures tokens like
+    # {machine_depth} resolve even when the setting isn't in our overrides.
+    token_lookup = {k: str(d.default_value) for k, d in registry.settings.items()
+                    if d.default_value is not None}
+    token_lookup.update(resolved)
     for key in GCODE_SETTINGS:
         if key in resolved:
-            resolved[key] = expand_gcode_tokens(resolved[key], resolved)
+            resolved[key] = expand_gcode_tokens(resolved[key], token_lookup)
 
     # Drop values that match the definition default — no need to send them
     for key in list(resolved):
