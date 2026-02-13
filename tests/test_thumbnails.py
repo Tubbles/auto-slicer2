@@ -6,6 +6,7 @@ import pytest
 
 from auto_slicer.thumbnails import (
     encode_thumbnail,
+    find_header_end,
     inject_thumbnails,
     generate_thumbnails,
     render_stl_thumbnail,
@@ -58,16 +59,49 @@ def test_encode_thumbnail_line_length(tmp_path):
         assert len(line) <= 2 + BASE64_LINE_WIDTH
 
 
-def test_inject_thumbnails(tmp_path):
+def test_inject_thumbnails_after_header(tmp_path):
     gcode_path = tmp_path / "test.gcode"
-    gcode_path.write_text(";FLAVOR:Marlin\nG28\nG1 X0 Y0\n")
+    gcode_path.write_text(";FLAVOR:Marlin\n;TIME:100\nG28\nG1 X0 Y0\n")
 
     inject_thumbnails(gcode_path, "; thumbnail begin 32x32 100\n; AAAA\n; thumbnail end\n")
 
     content = gcode_path.read_text()
-    assert content.startswith("; thumbnail begin 32x32 100\n")
-    assert ";FLAVOR:Marlin" in content
-    assert content.index("; thumbnail begin") < content.index(";FLAVOR:Marlin")
+    # Header comments come first
+    assert content.startswith(";FLAVOR:Marlin\n")
+    # Thumbnails come after header but before gcode commands
+    assert content.index(";FLAVOR:Marlin") < content.index("; thumbnail begin")
+    assert content.index("; thumbnail end") < content.index("G28")
+
+
+def test_inject_thumbnails_no_header(tmp_path):
+    """When gcode has no comment header, thumbnails go at the top."""
+    gcode_path = tmp_path / "test.gcode"
+    gcode_path.write_text("G28\nG1 X0 Y0\n")
+
+    inject_thumbnails(gcode_path, "; thumbnail begin 32x32 100\n; AAAA\n; thumbnail end\n")
+
+    content = gcode_path.read_text()
+    assert content.index("; thumbnail begin") < content.index("G28")
+
+
+def test_find_header_end():
+    lines = [";FLAVOR:Marlin\n", ";TIME:100\n", "G28\n", "G1 X0\n"]
+    assert find_header_end(lines) == 2
+
+
+def test_find_header_end_skips_blank_lines():
+    lines = [";FLAVOR:Marlin\n", "\n", ";TIME:100\n", "G28\n"]
+    assert find_header_end(lines) == 3
+
+
+def test_find_header_end_all_comments():
+    lines = [";FLAVOR:Marlin\n", ";TIME:100\n"]
+    assert find_header_end(lines) == 2
+
+
+def test_find_header_end_no_comments():
+    lines = ["G28\n", "G1 X0\n"]
+    assert find_header_end(lines) == 0
 
 
 def test_generate_thumbnails_openscad_missing(tmp_path):

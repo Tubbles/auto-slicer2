@@ -45,10 +45,25 @@ def generate_thumbnails(stl_path: Path, tmp_dir: Path) -> str:
             print(f"[Thumbnail] Failed to render {width}x{height}")
             return ""
         blocks.append(encode_thumbnail(png_path, width, height))
-    return "\n".join(blocks)
+    return ";\n\n;\n".join(blocks)
+
+
+def find_header_end(lines: list[str]) -> int:
+    """Find the line index where the initial comment header ends.
+
+    Skips blank lines that appear between comment lines.
+    """
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith(";"):
+            return i
+    return len(lines)
 
 
 def inject_thumbnails(gcode_path: Path, thumbnail_comments: str) -> None:
-    """Prepend thumbnail comments to the beginning of a gcode file."""
-    original = gcode_path.read_text()
-    gcode_path.write_text(thumbnail_comments + "\n" + original)
+    """Insert thumbnail comments after the CuraEngine comment header."""
+    lines = gcode_path.read_text().splitlines(keepends=True)
+    pos = find_header_end(lines)
+    header = "".join(lines[:pos])
+    body = "".join(lines[pos:])
+    gcode_path.write_text(header + ";\n" + thumbnail_comments + ";\n\n" + body)
