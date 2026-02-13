@@ -40,6 +40,32 @@ SETTINGS: dict[str, dict] = {
     "center_object": {
         "default_value": "true",
     },
+    # Suppress CuraEngine's auto-heating so start gcode handles it
+    "material_print_temp_prepend": {
+        "default_value": "false",
+    },
+    "material_bed_temp_prepend": {
+        "default_value": "false",
+    },
+    # Start gcode: heat bed+nozzle simultaneously, home, purge line
+    "machine_start_gcode": {
+        "default_value": (
+            "M140 S{material_bed_temperature} ;Start bed heating\n"
+            "M104 S{material_print_temperature} ;Start nozzle heating\n"
+            "M190 S{material_bed_temperature} ;Wait for bed\n"
+            "M109 S{material_print_temperature} ;Wait for nozzle\n"
+            "G28 ;Home all axes\n"
+            "G92 E0 ;Reset Extruder\n"
+            "G1 Z2.0 F3000 ;Move Z Axis up\n"
+            "G1 X0.1 Y20 Z0.3 F5000.0 ;Move to start position\n"
+            "G1 X0.1 Y200.0 Z0.3 F1500.0 E15 ;Draw the first line\n"
+            "G1 X0.4 Y200.0 Z0.3 F5000.0 ;Move to side a little\n"
+            "G1 X0.4 Y20 Z0.3 F1500.0 E30 ;Draw the second line\n"
+            "G92 E0 ;Reset Extruder\n"
+            "G1 Z2.0 F3000 ;Move Z Axis up\n"
+            "G1 X5 Y20 Z0.3 F5000.0 ;Move over to prevent blob squish"
+        ),
+    },
     # All-metal heat break: keep retraction short to avoid jams
     "retraction_amount": {
         "default_value": "4",
