@@ -218,7 +218,7 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
         )
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        archive_folder = config.archive_dir / f"{zip_path.stem}_{timestamp}"
+        archive_folder = config.archive_dir / zip_path.stem / timestamp
 
         failures = []
         for stl in sorted(stls):

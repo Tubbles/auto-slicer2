@@ -329,8 +329,8 @@ class TestSliceFileArchiveFolder:
             success, msg, result_path = slice_file(config, stl, {})
 
             assert success
-            assert result_path != archive_dir  # should be a timestamped subfolder
-            assert "model_" in result_path.name
+            assert result_path.parent.name == "model"
+            assert result_path.parent.parent == archive_dir
 
 
 class TestFindStlsInZip:

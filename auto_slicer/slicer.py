@@ -257,7 +257,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             presets = load_presets()
             inject_metadata(gcode_path, overrides, presets)
 
-            job_folder = archive_folder or config.archive_dir / f"{stl_path.stem}_{time.strftime('%Y%m%d_%H%M%S')}"
+            job_folder = archive_folder or config.archive_dir / stl_path.stem / time.strftime("%Y%m%d_%H%M%S")
             job_folder.mkdir(parents=True, exist_ok=True)
 
             shutil.move(str(stl_path), job_folder / stl_path.name)
