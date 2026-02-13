@@ -143,7 +143,7 @@ PRESETS: dict[str, dict] = {
     "PLA": {
         "description": "Temperatures and settings for PLA filament",
         "settings": {
-            "material_print_temperature": "200",
+            "material_print_temperature": "220",
             "material_bed_temperature": "60",
             "cool_fan_speed": "100",
             "cool_fan_speed_min": "100",
