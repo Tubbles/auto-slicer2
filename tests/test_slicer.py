@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
-from auto_slicer.slicer import build_cura_command, merge_settings, resolve_settings
+from auto_slicer.slicer import build_cura_command, expand_gcode_tokens, merge_settings, resolve_settings
 
 
 def _make_setting(key, setting_type="float", default_value=0.0, expr=None):
@@ -160,3 +160,53 @@ class TestResolveSettings:
         # forced key matches definition — should still be sent
         result = resolve_settings(reg, {"a": "5.0"}, {}, forced_keys={"a"})
         assert result["a"] == "5.0"
+
+    def test_gcode_tokens_expanded(self):
+        reg = _make_registry([
+            _make_setting("material_print_temperature", default_value=0.0),
+            _make_setting("material_bed_temperature", default_value=0.0),
+            _make_setting("machine_start_gcode", setting_type="str",
+                          default_value=""),
+        ])
+        gcode = "M140 S{material_bed_temperature}\nM104 S{material_print_temperature}"
+        result = resolve_settings(
+            reg, {"machine_start_gcode": gcode,
+                  "material_print_temperature": "220",
+                  "material_bed_temperature": "60"}, {},
+        )
+        assert "M140 S60" in result["machine_start_gcode"]
+        assert "M104 S220" in result["machine_start_gcode"]
+
+    def test_gcode_unknown_tokens_preserved(self):
+        reg = _make_registry([
+            _make_setting("machine_start_gcode", setting_type="str",
+                          default_value=""),
+        ])
+        gcode = "M104 S{unknown_setting}"
+        result = resolve_settings(reg, {"machine_start_gcode": gcode}, {})
+        assert "{unknown_setting}" in result["machine_start_gcode"]
+
+
+class TestExpandGcodeTokens:
+    def test_replaces_known(self):
+        result = expand_gcode_tokens(
+            "M104 S{temp}", {"temp": "200"})
+        assert result == "M104 S200"
+
+    def test_preserves_unknown(self):
+        result = expand_gcode_tokens(
+            "M104 S{missing}", {"temp": "200"})
+        assert result == "M104 S{missing}"
+
+    def test_multiple_tokens(self):
+        result = expand_gcode_tokens(
+            "M140 S{bed}\nM104 S{nozzle}",
+            {"bed": "60", "nozzle": "200"})
+        assert result == "M140 S60\nM104 S200"
+
+    def test_no_tokens(self):
+        result = expand_gcode_tokens("G28 ;Home", {"a": "1"})
+        assert result == "G28 ;Home"
+
+    def test_empty_string(self):
+        assert expand_gcode_tokens("", {"a": "1"}) == ""

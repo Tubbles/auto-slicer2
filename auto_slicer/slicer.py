@@ -1,3 +1,4 @@
+import re
 import time
 import subprocess
 import shutil
@@ -6,6 +7,13 @@ from pathlib import Path
 from .config import Config
 from .settings_eval import evaluate_expressions
 from .settings_registry import SettingsRegistry
+
+GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
+
+
+def expand_gcode_tokens(gcode: str, settings: dict[str, str]) -> str:
+    """Replace {setting_name} tokens in gcode with their resolved values."""
+    return re.sub(r"\{(\w+)\}", lambda m: settings.get(m.group(1), m.group(0)), gcode)
 
 
 def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[str, str]:
@@ -40,6 +48,11 @@ def resolve_settings(
         defn = registry.get(key)
         if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
+
+    # Expand {setting_name} tokens in gcode strings (CuraEngine doesn't do this)
+    for key in GCODE_SETTINGS:
+        if key in resolved:
+            resolved[key] = expand_gcode_tokens(resolved[key], resolved)
 
     return resolved
 
