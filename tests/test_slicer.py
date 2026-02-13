@@ -429,7 +429,11 @@ class TestFormatSettingsSummary:
     def test_preset_lines(self):
         presets = {"PETG": {"settings": {"material_print_temperature": "235"}}}
         result = format_settings_summary({"material_print_temperature": "235"}, presets)
-        assert "preset: PETG\n" in result
+        assert "preset: PETG\n\n" in result
+
+    def test_no_blank_line_without_presets(self):
+        result = format_settings_summary({"layer_height": "0.2"}, {})
+        assert not result.startswith("\n")
 
     def test_skips_multiline_values(self):
         assert format_settings_summary({"gcode": "line1\nline2"}, {}) == ""

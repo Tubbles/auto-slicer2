@@ -100,8 +100,11 @@ def format_settings_summary(
 ) -> str:
     """Format override settings and matching presets as plain text for settings.txt."""
     lines = []
-    for name in matching_presets(overrides, presets):
+    preset_names = matching_presets(overrides, presets)
+    for name in preset_names:
         lines.append(f"preset: {name}")
+    if preset_names:
+        lines.append("")
     for key, value in sorted(overrides.items()):
         if "\n" in value or len(value) > 100:
             continue
