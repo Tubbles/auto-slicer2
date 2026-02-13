@@ -13,8 +13,32 @@ SETTINGS: dict[str, dict] = {
     "layer_height": {
         "default_value": "0.2",
     },
-    "fill_density": {
+    "infill_sparse_density": {
         "default_value": "15",
+    },
+    "material_print_temperature": {
+        "default_value": "220",
+    },
+    "material_bed_temperature": {
+        "default_value": "60",
+    },
+    "support_structure": {
+        "default_value": "tree",
+    },
+    "support_type": {
+        "default_value": "buildplate",
+    },
+    "adhesion_type": {
+        "default_value": "skirt",
+    },
+    "skirt_line_count": {
+        "default_value": "2",
+    },
+    "skirt_height": {
+        "default_value": "1",
+    },
+    "center_object": {
+        "default_value": "true",
     },
     # All-metal heat break: keep retraction short to avoid jams
     "retraction_amount": {
