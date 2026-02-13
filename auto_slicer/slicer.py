@@ -55,12 +55,6 @@ def resolve_settings(
     # Layer pinned values on top (they always win)
     resolved.update(pinned)
 
-    # Drop values that match the definition default — no need to send them
-    for key in list(resolved):
-        defn = registry.get(key)
-        if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
-            del resolved[key]
-
     # Gcode settings must always be present so we can expand {tokens}.
     # Pull from registry default if not already resolved.
     for key in GCODE_SETTINGS:
@@ -68,8 +62,20 @@ def resolve_settings(
             defn = registry.get(key)
             if defn and defn.default_value is not None:
                 resolved[key] = str(defn.default_value)
+
+    # Expand {setting_name} tokens in gcode BEFORE dropping defaults,
+    # so machine settings like machine_depth are still available.
+    for key in GCODE_SETTINGS:
         if key in resolved:
             resolved[key] = expand_gcode_tokens(resolved[key], resolved)
+
+    # Drop values that match the definition default — no need to send them
+    for key in list(resolved):
+        if key in GCODE_SETTINGS:
+            continue  # always send gcode settings
+        defn = registry.get(key)
+        if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
+            del resolved[key]
 
     return resolved
 
