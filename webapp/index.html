@@ -446,7 +446,7 @@ function updateComputedDisplay() {
       const revCount = (reverseDeps[key] || []).length;
       const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
       const computedStr = isComputed ? ` | computed: ${computedValues[key]}` : '';
-      detail.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}${computedStr}`;
+      detail.textContent = `${s.key} [${s.type}] default: ${baseDefault(s)}${unit}${affectsStr}${computedStr}`;
     }
 
     // Toggle f(x) badge state
@@ -647,7 +647,7 @@ function buildSettingRow(s) {
   const revCount = (reverseDeps[s.key] || []).length;
   const affectsStr = revCount > 0 ? ` | affects ${revCount}` : '';
   const computedStr = (!isModified && s.key in computedValues) ? ` | computed: ${computedValues[s.key]}` : '';
-  detail.textContent = `${s.key} [${s.type}] default: ${s.default_value}${unit}${affectsStr}${computedStr}`;
+  detail.textContent = `${s.key} [${s.type}] default: ${baseDefault(s)}${unit}${affectsStr}${computedStr}`;
   desc.appendChild(detail);
   if (s.value_expression) {
     const expr = document.createElement('div');
