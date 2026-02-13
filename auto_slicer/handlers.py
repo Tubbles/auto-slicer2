@@ -2,6 +2,7 @@ import json
 import subprocess
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonDefault, Update, WebAppInfo
@@ -188,11 +189,56 @@ async def post_shutdown(app) -> None:
         await runner.cleanup()
 
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle STL file uploads."""
-    document = update.message.document
+def _find_stls_in_zip(zip_dir: Path) -> list[Path]:
+    """Recursively find STL files in an extracted ZIP, skipping macOS artifacts."""
+    return [
+        p for p in zip_dir.rglob("*.[sS][tT][lL]")
+        if "__MACOSX" not in p.parts and not p.name.startswith("._")
+    ]
 
-    if not document.file_name.lower().endswith(".stl"):
+
+async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides: dict) -> None:
+    """Extract a ZIP and slice all STL files inside it."""
+    with tempfile.TemporaryDirectory() as extract_dir:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(extract_dir)
+        except zipfile.BadZipFile:
+            await update.message.reply_text("Invalid ZIP file.")
+            return
+
+        stls = _find_stls_in_zip(Path(extract_dir))
+        if not stls:
+            await update.message.reply_text("No STL files found in ZIP.")
+            return
+
+        n = len(stls)
+        await update.message.reply_text(
+            f"Received {zip_path.name}, slicing {n} STL file{'s' if n != 1 else ''}..."
+        )
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        archive_folder = config.archive_dir / f"{zip_path.stem}_{timestamp}"
+
+        failures = []
+        for stl in sorted(stls):
+            success, message, _ = slice_file(config, stl, overrides, archive_folder=archive_folder)
+            if not success:
+                failures.append((stl.name, message))
+
+        ok = n - len(failures)
+        lines = [f"Done! {ok}/{n} sliced.", f"Archived to: {archive_folder}"]
+        for name, msg in failures:
+            lines.append(f"Failed: {name} — {msg}")
+        await update.message.reply_text("\n".join(lines))
+
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle STL and ZIP file uploads."""
+    document = update.message.document
+    name_lower = document.file_name.lower()
+
+    if not name_lower.endswith((".stl", ".zip")):
         return
 
     config: Config = context.bot_data["config"]
@@ -201,21 +247,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     overrides = user_settings.get(user_id, {})
 
-    await update.message.reply_text(f"Received {document.file_name}, slicing...")
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_DOCUMENT,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        stl_path = Path(tmpdir) / document.file_name
+        file_path = Path(tmpdir) / document.file_name
         file = await context.bot.get_file(document.file_id)
-        await file.download_to_drive(stl_path)
+        await file.download_to_drive(file_path)
 
-        success, message, archive_path = slice_file(config, stl_path, overrides)
-
-        if success:
-            await update.message.reply_text(
-                f"Done! Archived to:\n{archive_path}"
-            )
+        if name_lower.endswith(".zip"):
+            await _handle_zip(update, config, file_path, overrides)
         else:
-            await update.message.reply_text(f"Slicing failed: {message}")
+            await update.message.reply_text(f"Received {document.file_name}, slicing...")
+            success, message, archive_path = slice_file(config, file_path, overrides)
+            if success:
+                await update.message.reply_text(f"Done! Archived to:\n{archive_path}")
+            else:
+                await update.message.reply_text(f"Slicing failed: {message}")

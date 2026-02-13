@@ -1,11 +1,17 @@
 """Tests for slicer pure functions."""
 
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
+from auto_slicer.config import Config
+from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
-    merge_settings, resolve_settings,
+    merge_settings, resolve_settings, slice_file,
 )
 
 
@@ -272,3 +278,90 @@ class TestFindUnknownGcodeTokens:
         settings = {"machine_end_gcode": "M104 S{foo}"}
         result = find_unknown_gcode_tokens(settings)
         assert result == {"machine_end_gcode": ["foo"]}
+
+
+class TestSliceFileArchiveFolder:
+    def _make_config(self, archive_dir):
+        config = MagicMock(spec=Config)
+        config.archive_dir = Path(archive_dir)
+        config.registry = _make_registry([_make_setting("layer_height", default_value=0.2)])
+        config.defaults = {}
+        config.forced_keys = set()
+        config.cura_bin = Path("/usr/bin/CuraEngine")
+        config.def_dir = Path("/defs")
+        config.printer_def = "printer.def.json"
+        return config
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_archive_folder_used_when_provided(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            stl = tmpdir / "model.stl"
+            stl.write_text("solid test")
+            archive_folder = tmpdir / "shared_archive"
+
+            config = self._make_config(tmpdir / "default_archive")
+
+            success, msg, result_path = slice_file(config, stl, {}, archive_folder=archive_folder)
+
+            assert success
+            assert result_path == archive_folder
+            assert archive_folder.exists()
+            # STL was moved into the shared archive folder
+            assert (archive_folder / "model.stl").exists()
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_default_folder_when_archive_folder_not_provided(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            stl = tmpdir / "model.stl"
+            stl.write_text("solid test")
+            archive_dir = tmpdir / "archive"
+
+            config = self._make_config(archive_dir)
+
+            success, msg, result_path = slice_file(config, stl, {})
+
+            assert success
+            assert result_path != archive_dir  # should be a timestamped subfolder
+            assert "model_" in result_path.name
+
+
+class TestFindStlsInZip:
+    def test_finds_stls(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.stl").touch()
+            (root / "sub").mkdir()
+            (root / "sub" / "b.STL").touch()
+            result = _find_stls_in_zip(root)
+            names = {p.name for p in result}
+            assert names == {"a.stl", "b.STL"}
+
+    def test_skips_macosx(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "good.stl").touch()
+            macos = root / "__MACOSX"
+            macos.mkdir()
+            (macos / "bad.stl").touch()
+            result = _find_stls_in_zip(root)
+            assert len(result) == 1
+            assert result[0].name == "good.stl"
+
+    def test_skips_dot_underscore(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "good.stl").touch()
+            (root / "._hidden.stl").touch()
+            result = _find_stls_in_zip(root)
+            assert len(result) == 1
+            assert result[0].name == "good.stl"
+
+    def test_empty_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assert _find_stls_in_zip(Path(tmpdir)) == []

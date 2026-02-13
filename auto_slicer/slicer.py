@@ -110,8 +110,11 @@ def build_cura_command(
     return cmd
 
 
-def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, str, Path | None]:
-    """Slice an STL file and return (success, message, archive_path)."""
+def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None) -> tuple[bool, str, Path | None]:
+    """Slice an STL file and return (success, message, archive_path).
+
+    If archive_folder is provided, use it instead of creating a new timestamped folder.
+    """
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 
     unknown = find_unknown_gcode_tokens(active_settings)
@@ -150,8 +153,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict) -> tuple[bool, s
             except Exception as e:
                 print(f"[Thumbnail] Skipped: {e}")
 
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            job_folder = config.archive_dir / f"{stl_path.stem}_{timestamp}"
+            job_folder = archive_folder or config.archive_dir / f"{stl_path.stem}_{time.strftime('%Y%m%d_%H%M%S')}"
             job_folder.mkdir(parents=True, exist_ok=True)
 
             shutil.move(str(stl_path), job_folder / stl_path.name)
