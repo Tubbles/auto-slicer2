@@ -61,8 +61,13 @@ def resolve_settings(
         if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
 
-    # Expand {setting_name} tokens in gcode strings (CuraEngine doesn't do this)
+    # Gcode settings must always be present so we can expand {tokens}.
+    # Pull from registry default if not already resolved.
     for key in GCODE_SETTINGS:
+        if key not in resolved:
+            defn = registry.get(key)
+            if defn and defn.default_value is not None:
+                resolved[key] = str(defn.default_value)
         if key in resolved:
             resolved[key] = expand_gcode_tokens(resolved[key], resolved)
 

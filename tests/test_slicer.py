@@ -189,6 +189,28 @@ class TestResolveSettings:
         result = resolve_settings(reg, {"machine_start_gcode": gcode}, {})
         assert "{unknown_setting}" in result["machine_start_gcode"]
 
+    def test_gcode_definition_default_pulled_and_expanded(self):
+        """Gcode settings not in config/overrides are pulled from the registry
+        so their {tokens} get expanded (e.g. machine_end_gcode with {machine_depth})."""
+        reg = _make_registry([
+            _make_setting("machine_depth", default_value=0.0),
+            _make_setting("machine_end_gcode", setting_type="str",
+                          default_value="G1 Y{machine_depth} ;Present"),
+        ])
+        result = resolve_settings(reg, {"machine_depth": "235"}, {})
+        assert "machine_end_gcode" in result
+        assert "{machine_depth}" not in result["machine_end_gcode"]
+        assert "G1 Y235 ;Present" in result["machine_end_gcode"]
+
+    def test_gcode_override_wins_over_definition_default(self):
+        """When user provides gcode override, it takes priority over definition default."""
+        reg = _make_registry([
+            _make_setting("machine_end_gcode", setting_type="str",
+                          default_value="M104 S0 ;default end"),
+        ])
+        result = resolve_settings(reg, {}, {"machine_end_gcode": "G28 ;custom end"})
+        assert result["machine_end_gcode"] == "G28 ;custom end"
+
 
 class TestExpandGcodeTokens:
     def test_replaces_known(self):

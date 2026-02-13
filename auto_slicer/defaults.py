@@ -49,6 +49,7 @@ SETTINGS: dict[str, dict] = {
     },
     # Start gcode: heat both, home during heat-up, park high to avoid ooze
     "machine_start_gcode": {
+        "forced": True,
         "default_value": (
             "M140 S{material_bed_temperature} ;Start bed heating\n"
             "M104 S{material_print_temperature} ;Start nozzle heating\n"
