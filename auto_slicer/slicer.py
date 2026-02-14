@@ -8,9 +8,11 @@ from .config import Config
 from .presets import load_presets
 from .settings_eval import evaluate_expressions
 from .settings_registry import SettingsRegistry
+from .stl_transform import needs_scaling, scale_stl
 from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
+SCALE_KEYS = {"scale", "scale_x", "scale_y", "scale_z"}
 
 
 def expand_gcode_tokens(gcode: str, settings: dict[str, str]) -> str:
@@ -34,6 +36,16 @@ def merge_settings(defaults: dict[str, str], overrides: dict[str, str]) -> dict[
     result = defaults.copy()
     result.update(overrides)
     return result
+
+
+def _resolve_scale(config_defaults: dict[str, str], overrides: dict[str, str]) -> tuple[float, float, float]:
+    """Resolve master + per-axis scale factors from defaults and overrides."""
+    merged = {**config_defaults, **overrides}
+    master = float(merged.get("scale", "100"))
+    sx = float(merged.get("scale_x", str(master)))
+    sy = float(merged.get("scale_y", str(master)))
+    sz = float(merged.get("scale_z", str(master)))
+    return sx, sy, sz
 
 
 def resolve_settings(
@@ -81,6 +93,10 @@ def resolve_settings(
         defn = registry.get(key)
         if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
+
+    # Strip custom scale keys — they're handled before slicing, not by CuraEngine
+    for key in SCALE_KEYS:
+        resolved.pop(key, None)
 
     return resolved
 
@@ -219,6 +235,11 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
 
     If archive_folder is provided, use it instead of creating a new timestamped folder.
     """
+    sx, sy, sz = _resolve_scale(config.defaults, overrides)
+    if needs_scaling(sx, sy, sz):
+        scale_stl(stl_path, sx, sy, sz)
+        print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
+
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 
     unknown = find_unknown_gcode_tokens(active_settings)

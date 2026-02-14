@@ -10,6 +10,7 @@
   "retraction_amount",
   "retraction_enable",
   "retraction_speed",
+  "scale",
   "speed_print",
   "speed_travel",
   "support_angle",

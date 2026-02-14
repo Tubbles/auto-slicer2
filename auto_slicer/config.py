@@ -6,10 +6,42 @@ from .defaults import (
     SETTINGS, extract_bounds_overrides, extract_defaults,
     extract_expression_overrides, extract_forced_keys,
 )
-from .settings_registry import SettingsRegistry, load_registry
+from .settings_registry import SettingDefinition, SettingsRegistry, load_registry
 
 
 RELOAD_CHAT_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / ".reload_chat_id"
+
+
+CUSTOM_SETTINGS = [
+    SettingDefinition(
+        key="scale", label="Scale", description="Master scale factor (all axes)",
+        setting_type="float", default_value=100.0, unit="%",
+        minimum_value=0.1, maximum_value=10000.0,
+        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        category="Model",
+    ),
+    SettingDefinition(
+        key="scale_x", label="Scale X", description="X-axis scale factor",
+        setting_type="float", default_value=100.0, unit="%",
+        minimum_value=0.1, maximum_value=10000.0,
+        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        category="Model", value_expression="scale",
+    ),
+    SettingDefinition(
+        key="scale_y", label="Scale Y", description="Y-axis scale factor",
+        setting_type="float", default_value=100.0, unit="%",
+        minimum_value=0.1, maximum_value=10000.0,
+        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        category="Model", value_expression="scale",
+    ),
+    SettingDefinition(
+        key="scale_z", label="Scale Z", description="Z-axis scale factor",
+        setting_type="float", default_value=100.0, unit="%",
+        minimum_value=0.1, maximum_value=10000.0,
+        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        category="Model", value_expression="scale",
+    ),
+]
 
 
 @dataclass
@@ -38,6 +70,14 @@ BOUNDS_FIELD_NAMES = (
     "minimum_value", "maximum_value",
     "minimum_value_warning", "maximum_value_warning",
 )
+
+
+def _inject_custom_settings(registry: SettingsRegistry, custom: list[SettingDefinition]) -> None:
+    """Insert custom settings into an existing registry."""
+    for defn in custom:
+        registry.settings[defn.key] = defn
+        registry.label_to_key_map[defn.label.lower()] = defn.key
+        registry.normalized_key_map[defn.key.lower().replace(" ", "_")] = defn.key
 
 
 def _apply_bounds(registry: SettingsRegistry, overrides: dict[str, dict[str, float]]) -> None:
@@ -93,6 +133,7 @@ def load_config(config) -> Config:
     api_base_url = config["TELEGRAM"].get("api_base_url", "").strip()
 
     registry = load_registry(def_dir, printer_def)
+    _inject_custom_settings(registry, CUSTOM_SETTINGS)
     _apply_expressions(registry, extract_expression_overrides(SETTINGS))
     _apply_bounds(registry, extract_bounds_overrides(SETTINGS))
     if config.has_section("BOUNDS_OVERRIDES"):

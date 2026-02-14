@@ -24,6 +24,7 @@ python auto-slicer2.py -c /path/to/config.ini
 - Python 3.10+ (uses `X | Y` union syntax)
 - `python-telegram-bot` library
 - `aiohttp` library (HTTP API for Mini App)
+- `numpy-stl` library (STL scaling)
 - CuraEngine binary (path configured in config.ini)
 - Cura printer definitions directory
 
@@ -57,6 +58,7 @@ auto_slicer/
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
+  stl_transform.py         # STL scaling via numpy-stl (applied before slicing)
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
   web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
@@ -66,7 +68,8 @@ webapp/
   index.html               # Mini App frontend (deployed to GitHub Pages)
 tests/
   test_settings.py         # tests for registry, matcher, validator, presets, persistence
-  test_slicer.py           # tests for slicer command building and settings merge
+  test_slicer.py           # tests for slicer command building, settings merge, and scaling
+  test_stl_transform.py    # tests for STL scaling
   test_eval.py             # tests for expression evaluator
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
   test_web_api.py          # tests for web API helpers and endpoints
@@ -100,9 +103,10 @@ tests/
 1. User configures settings via the Mini App (webapp)
 2. User sends STL file as document
 3. Bot downloads to temp directory
-4. `slice_file()` invokes CuraEngine with merged settings (defaults + user overrides)
-5. On success: archives STL+gcode+settings.txt to timestamped subfolder, notifies user with path
-6. On failure: moves STL to `archive/errors/`, sends error message
+4. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
+5. `slice_file()` invokes CuraEngine with merged settings (scale keys stripped — CuraEngine never sees them)
+6. On success: archives STL+gcode+settings.txt to timestamped subfolder, notifies user with path
+7. On failure: moves STL to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 

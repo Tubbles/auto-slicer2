@@ -10,6 +10,9 @@ SETTINGS uses Cura-style subkeys:
 """
 
 SETTINGS: dict[str, dict] = {
+    "scale": {
+        "default_value": "100",
+    },
     "layer_height": {
         "default_value": "0.2",
     },

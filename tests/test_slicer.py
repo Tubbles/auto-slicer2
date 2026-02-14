@@ -10,6 +10,7 @@ from auto_slicer.config import Config
 from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
+    SCALE_KEYS, _resolve_scale,
     build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
     format_metadata_comments, format_settings_summary, inject_metadata,
     matching_presets, merge_settings, parse_gcode_header,
@@ -601,3 +602,60 @@ class TestPatchGcodeHeader:
             content = gcode.read_text()
             assert "G28\n" in content
             assert "G1 X100\n" in content
+
+
+class TestResolveScale:
+    def test_defaults_to_100(self):
+        assert _resolve_scale({}, {}) == (100.0, 100.0, 100.0)
+
+    def test_master_propagates_to_axes(self):
+        assert _resolve_scale({"scale": "150"}, {}) == (150.0, 150.0, 150.0)
+
+    def test_per_axis_override(self):
+        sx, sy, sz = _resolve_scale({"scale": "150"}, {"scale_x": "200"})
+        assert sx == 200.0
+        assert sy == 150.0
+        assert sz == 150.0
+
+    def test_user_overrides_win_over_config(self):
+        sx, sy, sz = _resolve_scale({"scale": "100"}, {"scale": "200"})
+        assert sx == 200.0
+        assert sy == 200.0
+        assert sz == 200.0
+
+    def test_config_default_scale(self):
+        sx, sy, sz = _resolve_scale({"scale": "50"}, {})
+        assert sx == 50.0
+        assert sy == 50.0
+        assert sz == 50.0
+
+    def test_per_axis_without_master(self):
+        sx, sy, sz = _resolve_scale({}, {"scale_y": "300"})
+        assert sx == 100.0
+        assert sy == 300.0
+        assert sz == 100.0
+
+
+class TestScaleKeysStripped:
+    def test_scale_keys_absent_from_resolved(self):
+        reg = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("scale", default_value=100.0),
+            _make_setting("scale_x", default_value=100.0, expr="scale"),
+            _make_setting("scale_y", default_value=100.0, expr="scale"),
+            _make_setting("scale_z", default_value=100.0, expr="scale"),
+        ])
+        result = resolve_settings(reg, {"scale": "150"}, {})
+        for key in SCALE_KEYS:
+            assert key not in result
+
+    def test_scale_keys_absent_even_with_user_override(self):
+        reg = _make_registry([
+            _make_setting("scale", default_value=100.0),
+            _make_setting("scale_x", default_value=100.0, expr="scale"),
+            _make_setting("scale_y", default_value=100.0, expr="scale"),
+            _make_setting("scale_z", default_value=100.0, expr="scale"),
+        ])
+        result = resolve_settings(reg, {}, {"scale": "200", "scale_x": "300"})
+        for key in SCALE_KEYS:
+            assert key not in result
