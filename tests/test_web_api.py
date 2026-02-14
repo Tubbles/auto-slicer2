@@ -42,7 +42,10 @@ def _make_registry(settings: dict[str, SettingDefinition]) -> SettingsRegistry:
     return SettingsRegistry(settings, label_map, norm_map)
 
 
-def _make_config(settings: dict[str, SettingDefinition] | None = None) -> Config:
+def _make_config(
+    settings: dict[str, SettingDefinition] | None = None,
+    defaults: dict[str, str] | None = None,
+) -> Config:
     """Create a Config with a mock registry."""
     if settings is None:
         settings = {"test_key": _make_defn()}
@@ -52,7 +55,7 @@ def _make_config(settings: dict[str, SettingDefinition] | None = None) -> Config
         cura_bin=Path("."),
         def_dir=Path("."),
         printer_def="",
-        defaults={"test_key": "1.0"},
+        defaults=defaults if defaults is not None else {"test_key": "1.0"},
         telegram_token="test:token",
         allowed_users={42, 999},
         notify_chat_id=None,
@@ -628,3 +631,19 @@ class TestEvaluateEndpoint:
         resp = await client.post("/api/evaluate", json={"overrides": {}}, headers=_bearer(token))
         data = await resp.json()
         assert "bad" in data["errors"]
+
+    @pytest.mark.asyncio
+    async def test_config_defaults_pin_expressions(self, aiohttp_client):
+        """Config defaults should prevent expression evaluation, same as user overrides."""
+        settings = {
+            "base": _make_defn(key="base", default_value=10.0),
+            "computed": _make_defn(key="computed", default_value=0.0, value_expression="base * 2"),
+        }
+        config = _make_config(settings, defaults={"computed": "5"})
+        app = create_web_app(config, {}, tokens={})
+        token = _add_token(app)
+        client = await aiohttp_client(app)
+        resp = await client.post("/api/evaluate", json={"overrides": {}}, headers=_bearer(token))
+        data = await resp.json()
+        # computed should NOT appear — it's pinned by config default
+        assert "computed" not in data["computed"]

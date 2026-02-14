@@ -250,7 +250,8 @@ async def handle_evaluate(request: web.Request) -> web.Response:
     except (json.JSONDecodeError, ValueError):
         return web.json_response({"error": "invalid JSON body"}, status=400)
 
-    pinned = body.get("overrides", {})
+    overrides = body.get("overrides", {})
+    pinned = {**config.defaults, **overrides}
     result = evaluate_expressions(config.registry, pinned, config.defaults)
 
     return web.json_response({
