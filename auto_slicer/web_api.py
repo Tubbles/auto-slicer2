@@ -90,6 +90,8 @@ def _build_registry_response(config: Config) -> dict:
     settings_list = []
     for key, defn in all_settings.items():
         sd = _setting_to_dict(defn)
+        if key in config.defaults:
+            sd.pop("value_expression", None)
         settings_list.append(sd)
         cat = defn.category or "Other"
         categories.setdefault(cat, []).append(sd)

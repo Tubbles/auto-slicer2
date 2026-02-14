@@ -189,6 +189,28 @@ class TestBuildRegistryResponse:
         resp = _build_registry_response(config)
         assert "Other" in resp["categories"]
 
+    def test_pinned_expression_stripped(self):
+        """Config default pins expression — frontend should not see value_expression."""
+        settings = {
+            "pinned": _make_defn(key="pinned", value_expression="layer_height * 2"),
+        }
+        config = _make_config(settings, defaults={"pinned": "2"})
+        resp = _build_registry_response(config)
+        sd = resp["settings"][0]
+        assert sd["key"] == "pinned"
+        assert "value_expression" not in sd
+
+    def test_unpinned_expression_kept(self):
+        """No config default — frontend should see value_expression."""
+        settings = {
+            "free": _make_defn(key="free", value_expression="layer_height * 2"),
+        }
+        config = _make_config(settings, defaults={})
+        resp = _build_registry_response(config)
+        sd = resp["settings"][0]
+        assert sd["key"] == "free"
+        assert sd["value_expression"] == "layer_height * 2"
+
 
 class TestValidateOverrides:
     def test_valid_float(self):
