@@ -16,6 +16,9 @@ SETTINGS: dict[str, dict] = {
     "layer_height_0": {
         "value_expression": "layer_height",
     },
+    "infill_pattern": {
+        "default_value": "cubic",
+    },
     "infill_sparse_density": {
         "default_value": "15",
     },
