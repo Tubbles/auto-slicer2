@@ -1,8 +1,8 @@
 """Expression evaluator for Cura setting value expressions.
 
 Evaluates Python expressions from Cura's definition files using restricted
-eval(). Used for webapp preview only — CuraEngine evaluates its own expressions
-at slice time.
+eval(). CuraEngine does not evaluate expressions — it only receives flat
+-s key=value flags. All expression evaluation is our responsibility.
 """
 
 import ast

@@ -85,7 +85,7 @@ tests/
 
 **Settings validation** (`settings_validate.py`): `validate()` type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
 
-**Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. Used for webapp preview only — CuraEngine evaluates its own expressions at slice time. Exposed via `POST /api/evaluate`.
+**Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. CuraEngine does **not** evaluate expressions — it only receives flat `-s key=value` flags. All expression evaluation is our responsibility: `resolve_settings()` must produce fully resolved values for every setting that needs to be sent. Exposed via `POST /api/evaluate` for webapp preview.
 
 **Presets** (`presets.py`): Re-exports `BUILTIN_PRESETS` from `defaults.py` and provides `load_presets()` which merges in optional custom presets from presets.json.
 
@@ -93,7 +93,7 @@ tests/
 
 **Starred keys**: Globally shared set of "favorite" setting keys, shown in the Mini App's "Starred" tab. File-backed via `starred_keys.json` (gitignored, created from `starred_keys.default.json` template on first run). Any authenticated user can star/unstar settings via `POST /api/starred`.
 
-**API authentication**: Ephemeral Bearer tokens with 30-minute sliding TTL. The `/webapp` bot command generates a random token, stores `(user_id, expiry)` in memory, and embeds it in the webapp URL. The frontend sends `Authorization: Bearer <token>` on all requests. The auth middleware validates tokens and refreshes expiry on each use. `/api/health` is the only endpoint that does not require a Bearer token. `web_auth.py` (initData HMAC validation) is retained but no longer used for API auth.
+**API authentication**: Ephemeral Bearer tokens with 30-minute sliding TTL and 24-hour max TTL. The `/webapp` bot command generates a random token, stores `(user_id, expiry, created)` in memory, and embeds it in the webapp URL. The frontend sends `Authorization: Bearer <token>` on all requests. The auth middleware validates tokens and refreshes expiry on each use. `/api/health` is the only endpoint that does not require a Bearer token. `web_auth.py` (initData HMAC validation) is retained but no longer used for API auth.
 
 ### Workflow
 
