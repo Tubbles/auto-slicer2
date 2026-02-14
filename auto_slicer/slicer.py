@@ -268,7 +268,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             job_folder = archive_folder or config.archive_dir / stl_path.stem / time.strftime("%Y%m%d_%H%M%S")
             job_folder.mkdir(parents=True, exist_ok=True)
 
-            model_folder = job_folder.parent if not archive_folder else archive_folder
+            model_folder = job_folder.parent
             shutil.move(str(stl_path), model_folder / stl_path.name)
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)

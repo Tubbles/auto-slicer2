@@ -302,7 +302,7 @@ class TestSliceFileArchiveFolder:
             tmpdir = Path(tmpdir)
             stl = tmpdir / "model.stl"
             stl.write_text("solid test")
-            archive_folder = tmpdir / "shared_archive"
+            archive_folder = tmpdir / "zip_name" / "20260213_120000"
 
             config = self._make_config(tmpdir / "default_archive")
 
@@ -311,8 +311,9 @@ class TestSliceFileArchiveFolder:
             assert success
             assert result_path == archive_folder
             assert archive_folder.exists()
-            # STL was moved into the shared archive folder
-            assert (archive_folder / "model.stl").exists()
+            # STL goes one level up (parent of archive_folder)
+            assert (archive_folder.parent / "model.stl").exists()
+            assert not (archive_folder / "model.stl").exists()
 
     @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
     @patch("auto_slicer.slicer.subprocess.run")
