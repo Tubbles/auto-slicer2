@@ -147,7 +147,7 @@ PRESETS: dict[str, dict] = {
         "description": "Balanced quality and speed",
         "settings": {
             "layer_height": "0.2",
-            "infill_sparse_density": "20",
+            "infill_sparse_density": "15",
             "wall_line_count": "3",
             "top_layers": "4",
             "bottom_layers": "4",
