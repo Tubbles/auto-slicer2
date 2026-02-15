@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 
 import lib3mf
-import numpy as np
 import pytest
 from stl import mesh as stl_mesh
 
@@ -27,7 +26,7 @@ def _tri(v1, v2, v3):
     return t
 
 
-def _write_simple_3mf(path: Path, transform=None) -> None:
+def _write_simple_3mf(path: Path) -> None:
     """Write a 3MF with one triangle (right triangle in XY plane)."""
     wrapper = lib3mf.Wrapper()
     model = wrapper.CreateModel()
@@ -36,10 +35,7 @@ def _write_simple_3mf(path: Path, transform=None) -> None:
     mesh.AddVertex(_pos(1, 0, 0))
     mesh.AddVertex(_pos(0, 1, 0))
     mesh.AddTriangle(_tri(0, 1, 2))
-    if transform:
-        model.AddBuildItem(mesh, transform)
-    else:
-        model.AddBuildItem(mesh, wrapper.GetIdentityTransform())
+    model.AddBuildItem(mesh, wrapper.GetIdentityTransform())
     model.QueryWriter("3mf").WriteToFile(str(path))
 
 
@@ -68,9 +64,40 @@ class TestConvert3mfToStl:
 
             m = stl_mesh.Mesh.from_file(str(stl_out))
             tri = m.vectors[0]
-            np.testing.assert_array_almost_equal(tri[0], [0, 0, 0])
-            np.testing.assert_array_almost_equal(tri[1], [1, 0, 0])
-            np.testing.assert_array_almost_equal(tri[2], [0, 1, 0])
+            xs = sorted(v[0] for v in tri)
+            ys = sorted(v[1] for v in tri)
+            assert xs[0] == pytest.approx(0, abs=1e-5)
+            assert xs[-1] == pytest.approx(1, abs=1e-5)
+            assert ys[0] == pytest.approx(0, abs=1e-5)
+            assert ys[-1] == pytest.approx(1, abs=1e-5)
+
+    def test_build_transform_applied(self):
+        """Build-item transforms (orientation) are applied in the output STL."""
+        wrapper = lib3mf.Wrapper()
+        model = wrapper.CreateModel()
+        mesh = model.AddMeshObject()
+        # Triangle at z=0
+        mesh.AddVertex(_pos(0, 0, 0))
+        mesh.AddVertex(_pos(1, 0, 0))
+        mesh.AddVertex(_pos(0, 1, 0))
+        mesh.AddTriangle(_tri(0, 1, 2))
+
+        # Translate by (10, 0, 0)
+        t = wrapper.GetIdentityTransform()
+        t.Fields[3][0] = 10.0
+        model.AddBuildItem(mesh, t)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            threemf = tmpdir / "model.3mf"
+            stl_out = tmpdir / "model.stl"
+            model.QueryWriter("3mf").WriteToFile(str(threemf))
+
+            convert_3mf_to_stl(threemf, stl_out)
+
+            m = stl_mesh.Mesh.from_file(str(stl_out))
+            min_x = m.vectors[:, :, 0].min()
+            assert min_x == pytest.approx(10.0, abs=1e-5)
 
     def test_multiple_objects(self):
         """A 3MF with two mesh objects produces a combined STL."""
@@ -117,7 +144,6 @@ class TestConvert3mfToStl:
 
         comp = model.AddComponentsObject()
         comp.AddComponent(mesh, wrapper.GetIdentityTransform())
-
         model.AddBuildItem(comp, wrapper.GetIdentityTransform())
 
         with tempfile.TemporaryDirectory() as tmpdir:

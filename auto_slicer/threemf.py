@@ -1,45 +1,32 @@
 """Convert 3MF files to STL format using lib3mf.
 
-lib3mf handles all 3MF complexities (components, transforms, multiple objects)
-and we write the combined mesh to binary STL via numpy-stl.
+lib3mf handles all 3MF complexities (components, build-item transforms,
+multiple objects) and its STL writer applies transforms automatically.
 """
 
 from pathlib import Path
 
 import lib3mf
-import numpy as np
-from stl import mesh as stl_mesh
 
 
 def convert_3mf_to_stl(threemf_path: Path, stl_path: Path) -> None:
-    """Convert a 3MF file to binary STL.
+    """Convert a 3MF file to STL, preserving the build-item orientation.
 
-    Uses lib3mf to read the 3MF (resolving components and transforms),
-    then writes a single combined STL file via numpy-stl.
+    lib3mf's STL writer applies build-item transforms (rotation, translation)
+    so the model comes out in the correct print orientation.
     """
     wrapper = lib3mf.Wrapper()
     model = wrapper.CreateModel()
     reader = model.QueryReader("3mf")
     reader.ReadFromFile(str(threemf_path))
 
-    all_triangles = []
+    has_triangles = False
     it = model.GetMeshObjects()
     while it.MoveNext():
-        mesh = it.GetCurrentMeshObject()
-        verts = mesh.GetVertices()
-        tris = mesh.GetTriangleIndices()
-        if not tris:
-            continue
-
-        vert_array = np.array([list(v.Coordinates) for v in verts])
-        for tri in tris:
-            idx = list(tri.Indices)
-            all_triangles.append(vert_array[idx])
-
-    if not all_triangles:
+        if it.GetCurrentMeshObject().GetTriangleCount() > 0:
+            has_triangles = True
+            break
+    if not has_triangles:
         raise ValueError("No mesh data found in 3MF file")
 
-    combined = np.array(all_triangles)
-    out = stl_mesh.Mesh(np.zeros(len(combined), dtype=stl_mesh.Mesh.dtype))
-    out.vectors = combined
-    out.save(str(stl_path))
+    model.QueryWriter("stl").WriteToFile(str(stl_path))
