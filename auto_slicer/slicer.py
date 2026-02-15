@@ -1,3 +1,4 @@
+import math
 import re
 import time
 import subprocess
@@ -6,7 +7,7 @@ from pathlib import Path
 
 from .config import Config
 from .presets import load_presets
-from .settings_eval import evaluate_expressions
+from .settings_eval import _SAFE_BUILTINS, evaluate_expressions
 from .settings_registry import SettingsRegistry
 from .stl_transform import needs_scaling, scale_stl
 from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
@@ -15,19 +16,57 @@ GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 SCALE_KEYS = {"scale", "scale_x", "scale_y", "scale_z"}
 
 
+def _eval_gcode_expr(expr: str, namespace: dict) -> str:
+    """Evaluate a single gcode {expression} and return its string result."""
+    eval_globals = {"__builtins__": {}, "math": math}
+    eval_globals.update(_SAFE_BUILTINS)
+    return str(eval(expr, eval_globals, namespace))  # noqa: S307
+
+
 def expand_gcode_tokens(gcode: str, settings: dict[str, str]) -> str:
-    """Replace {setting_name} tokens in gcode with their resolved values."""
-    return re.sub(r"\{(\w+)\}", lambda m: settings.get(m.group(1), m.group(0)), gcode)
+    """Evaluate {expressions} in gcode using setting values as the namespace.
+
+    Handles both simple tokens like {layer_height} and arbitrary expressions
+    like {machine_depth - 20}. CuraEngine does NOT evaluate these — we must
+    resolve everything before sending.
+    """
+    namespace = {k: _try_number(v) for k, v in settings.items()}
+
+    def replace(m: re.Match) -> str:
+        expr = m.group(1)
+        try:
+            return _eval_gcode_expr(expr, namespace)
+        except Exception:
+            return m.group(0)  # leave unresolved on error
+
+    return re.sub(r"\{([^}]+)\}", replace, gcode)
+
+
+def _try_number(value: str) -> int | float | str:
+    """Try to parse a string as int or float, returning the original on failure."""
+    try:
+        f = float(value)
+        return int(f) if f == int(f) else f
+    except (ValueError, OverflowError):
+        return value
 
 
 def find_unknown_gcode_tokens(settings: dict[str, str]) -> dict[str, list[str]]:
-    """Return {gcode_key: [unknown_tokens]} for any unexpanded tokens."""
+    """Return {gcode_key: [unknown_expressions]} for any unresolvable tokens."""
+    namespace = {k: _try_number(v) for k, v in settings.items()}
     result = {}
     for key in GCODE_SETTINGS:
-        if key in settings:
-            unknown = re.findall(r"\{(\w+)\}", settings[key])
-            if unknown:
-                result[key] = unknown
+        if key not in settings:
+            continue
+        unknown = []
+        for m in re.finditer(r"\{([^}]+)\}", settings[key]):
+            expr = m.group(1)
+            try:
+                _eval_gcode_expr(expr, namespace)
+            except Exception:
+                unknown.append(expr)
+        if unknown:
+            result[key] = unknown
     return result
 
 

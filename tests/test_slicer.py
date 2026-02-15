@@ -10,7 +10,7 @@ from auto_slicer.config import Config
 from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
-    SCALE_KEYS, _resolve_scale,
+    SCALE_KEYS, _resolve_scale, _try_number,
     build_cura_command, expand_gcode_tokens, extract_stats,
     find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
@@ -223,7 +223,7 @@ class TestResolveSettings:
         result = resolve_settings(reg, {}, {})
         assert "machine_end_gcode" in result
         assert "{machine_depth}" not in result["machine_end_gcode"]
-        assert "G1 Y235.0 ;Present" in result["machine_end_gcode"]
+        assert "G1 Y235 ;Present" in result["machine_end_gcode"]
 
     def test_gcode_override_wins_over_definition_default(self):
         """When user provides gcode override, it takes priority over definition default."""
@@ -259,6 +259,26 @@ class TestExpandGcodeTokens:
     def test_empty_string(self):
         assert expand_gcode_tokens("", {"a": "1"}) == ""
 
+    def test_expression_arithmetic(self):
+        result = expand_gcode_tokens(
+            "G1 Y{depth - 20}", {"depth": "235"})
+        assert result == "G1 Y215"
+
+    def test_expression_with_float(self):
+        result = expand_gcode_tokens(
+            "G1 Z{height * 2}", {"height": "0.3"})
+        assert result == "G1 Z0.6"
+
+    def test_expression_preserves_on_error(self):
+        result = expand_gcode_tokens(
+            "G1 Y{totally_unknown - 20}", {})
+        assert result == "G1 Y{totally_unknown - 20}"
+
+    def test_expression_math_function(self):
+        result = expand_gcode_tokens(
+            "G1 X{max(a, b)}", {"a": "10", "b": "20"})
+        assert result == "G1 X20"
+
 
 class TestFindUnknownGcodeTokens:
     def test_no_gcode_settings(self):
@@ -282,6 +302,32 @@ class TestFindUnknownGcodeTokens:
         settings = {"machine_end_gcode": "M104 S{foo}"}
         result = find_unknown_gcode_tokens(settings)
         assert result == {"machine_end_gcode": ["foo"]}
+
+    def test_valid_expression_not_flagged(self):
+        settings = {"machine_end_gcode": "G1 Y{depth - 20}", "depth": "235"}
+        assert find_unknown_gcode_tokens(settings) == {}
+
+    def test_invalid_expression_flagged(self):
+        settings = {"machine_end_gcode": "G1 Y{unknown_var - 20}"}
+        result = find_unknown_gcode_tokens(settings)
+        assert result == {"machine_end_gcode": ["unknown_var - 20"]}
+
+
+class TestTryNumber:
+    def test_int(self):
+        assert _try_number("235") == 235
+        assert isinstance(_try_number("235"), int)
+
+    def test_float(self):
+        assert _try_number("0.3") == 0.3
+        assert isinstance(_try_number("0.3"), float)
+
+    def test_whole_float_becomes_int(self):
+        assert _try_number("235.0") == 235
+        assert isinstance(_try_number("235.0"), int)
+
+    def test_string_passthrough(self):
+        assert _try_number("hello") == "hello"
 
 
 class TestSliceFileArchiveFolder:

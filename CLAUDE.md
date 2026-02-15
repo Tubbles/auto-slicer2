@@ -88,7 +88,7 @@ tests/
 
 **Settings validation** (`settings_validate.py`): `validate()` type-checks and bounds-checks values for float, int, bool, enum, and str settings. Hard bounds reject; warning bounds accept with a warning.
 
-**Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. CuraEngine does **not** evaluate expressions — it only receives flat `-s key=value` flags. All expression evaluation is our responsibility: `resolve_settings()` must produce fully resolved values for every setting that needs to be sent. Exposed via `POST /api/evaluate` for webapp preview.
+**Expression evaluator** (`settings_eval.py`): Evaluates Cura's Python value expressions via restricted `eval()`. Builds a dependency graph from `value_expression` fields, topologically sorts, and evaluates in order. **CuraEngine is a dumb consumer — it does NOT evaluate any expressions, anywhere.** It only receives flat `-s key=value` flags and literal gcode strings. All expression evaluation is 100% our responsibility: `resolve_settings()` must produce fully resolved values for every setting, and `expand_gcode_tokens()` must evaluate `{...}` expressions inside gcode strings (e.g. `{machine_depth - 20}`). Nothing with `{...}` should ever reach CuraEngine unresolved. Exposed via `POST /api/evaluate` for webapp preview.
 
 **Presets** (`presets.py`): Re-exports `BUILTIN_PRESETS` from `defaults.py` and provides `load_presets()` which merges in optional custom presets from presets.json.
 
