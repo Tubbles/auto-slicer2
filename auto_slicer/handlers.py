@@ -268,12 +268,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = update.message.document
     name_lower = document.file_name.lower()
 
-    if not name_lower.endswith((".stl", ".3mf", ".zip")):
-        return
-
     config: Config = context.bot_data["config"]
     user_id = update.effective_user.id
     if not is_allowed(config, user_id):
+        return
+
+    if not name_lower.endswith((".stl", ".3mf", ".zip")):
+        ext = Path(name_lower).suffix or "no extension"
+        await update.message.reply_text(
+            f"Unsupported file type ({ext}). Send an STL, 3MF, or ZIP file."
+        )
         return
     overrides = user_settings.get(user_id, {})
 
