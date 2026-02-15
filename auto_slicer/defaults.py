@@ -77,6 +77,25 @@ SETTINGS: dict[str, dict] = {
             "G1 X5 Y20 Z0.3 F5000.0 ;Move over to prevent blob squish"
         ),
     },
+    # End gcode: retract, wipe, present print, cool down
+    "machine_end_gcode": {
+        "forced": True,
+        "default_value": (
+            "G91 ;Relative positioning\n"
+            "G1 E-2 F2700 ;Retract a bit\n"
+            "G1 E-2 Z0.2 F2400 ;Retract and raise Z\n"
+            "G1 X5 Y5 F3000 ;Wipe out\n"
+            "G1 Z10 ;Raise Z more\n"
+            "G90 ;Absolute positioning\n"
+            "\n"
+            "G1 X20 Y{machine_depth - 20} ;Present print\n"
+            "M106 S0 ;Turn-off fan\n"
+            "M104 S0 ;Turn-off hotend\n"
+            "M140 S0 ;Turn-off bed\n"
+            "\n"
+            "M84 X Y E ;Disable all steppers but Z"
+        ),
+    },
     # All-metal heat break: keep retraction short to avoid jams
     "retraction_amount": {
         "default_value": "4",
