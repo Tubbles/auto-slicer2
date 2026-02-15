@@ -10,7 +10,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
-from .slicer import slice_file
+from .slicer import format_duration, slice_file
 from .web_api import generate_token, TOKEN_TTL
 
 
@@ -198,6 +198,14 @@ def _find_stls_in_zip(zip_dir: Path) -> list[Path]:
     ]
 
 
+def format_stats_line(stats: dict) -> str:
+    """Format a stats dict as 'Time: Xm Ys | Filament: Z.ZZm', or '' if empty."""
+    if not stats:
+        return ""
+    time_str = format_duration(stats["time_seconds"])
+    return f"Time: {time_str} | Filament: {stats['filament_meters']}m"
+
+
 async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides: dict) -> None:
     """Extract a ZIP and slice all STL files inside it."""
     with tempfile.TemporaryDirectory() as extract_dir:
@@ -222,15 +230,34 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
         archive_folder = config.archive_dir / zip_path.stem / timestamp
 
         failures = []
+        file_stats = []
         for stl in sorted(stls):
-            success, message, _ = slice_file(config, stl, overrides, archive_folder=archive_folder)
-            if not success:
+            success, message, _, stats = slice_file(config, stl, overrides, archive_folder=archive_folder)
+            if success:
+                file_stats.append((stl.name, stats))
+            else:
                 failures.append((stl.name, message))
 
         ok = n - len(failures)
         lines = [f"Done! {ok}/{n} sliced.", f"Archived to: {archive_folder}"]
         for name, msg in failures:
             lines.append(f"Failed: {name} — {msg}")
+
+        if file_stats and any(s for _, s in file_stats):
+            lines.append("")
+            total_time = 0
+            total_filament = 0.0
+            for name, stats in file_stats:
+                if stats:
+                    t = format_duration(stats["time_seconds"])
+                    f = stats["filament_meters"]
+                    lines.append(f"{name} — {t}, {f}m")
+                    total_time += stats["time_seconds"]
+                    total_filament += stats["filament_meters"]
+                else:
+                    lines.append(f"{name} — (no stats)")
+            lines.append(f"\nTotal: {format_duration(total_time)}, {round(total_filament, 2)}m")
+
         await update.message.reply_text("\n".join(lines))
 
 
@@ -265,8 +292,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_zip(update, config, file_path, overrides)
         else:
             await update.message.reply_text(f"Received {document.file_name}, slicing...")
-            success, message, archive_path = slice_file(config, file_path, overrides)
+            success, message, archive_path, stats = slice_file(config, file_path, overrides)
             if success:
-                await update.message.reply_text(f"Done! Archived to:\n{archive_path}")
+                reply = f"Done! Archived to:\n{archive_path}"
+                stats_line = format_stats_line(stats)
+                if stats_line:
+                    reply += f"\n{stats_line}"
+                await update.message.reply_text(reply)
             else:
                 await update.message.reply_text(f"Slicing failed: {message}")

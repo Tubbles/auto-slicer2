@@ -11,7 +11,8 @@ from auto_slicer.handlers import _find_stls_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     SCALE_KEYS, _resolve_scale,
-    build_cura_command, expand_gcode_tokens, find_unknown_gcode_tokens,
+    build_cura_command, expand_gcode_tokens, extract_stats,
+    find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
     matching_presets, merge_settings, parse_gcode_header,
     patch_gcode_header, resolve_settings, slice_file,
@@ -307,7 +308,7 @@ class TestSliceFileArchiveFolder:
 
             config = self._make_config(tmpdir / "default_archive")
 
-            success, msg, result_path = slice_file(config, stl, {}, archive_folder=archive_folder)
+            success, msg, result_path, _ = slice_file(config, stl, {}, archive_folder=archive_folder)
 
             assert success
             assert result_path == archive_folder
@@ -328,7 +329,7 @@ class TestSliceFileArchiveFolder:
 
             config = self._make_config(archive_dir)
 
-            success, msg, result_path = slice_file(config, stl, {})
+            success, msg, result_path, _ = slice_file(config, stl, {})
 
             assert success
             # job_folder is archive/model/timestamp/
@@ -659,3 +660,46 @@ class TestScaleKeysStripped:
         result = resolve_settings(reg, {}, {"scale": "200", "scale_x": "300"})
         for key in SCALE_KEYS:
             assert key not in result
+
+
+class TestFormatDuration:
+    def test_seconds_only(self):
+        assert format_duration(45) == "45s"
+
+    def test_minutes_and_seconds(self):
+        assert format_duration(65) == "1m 5s"
+
+    def test_hours_minutes_seconds(self):
+        assert format_duration(3661) == "1h 1m 1s"
+
+    def test_zero(self):
+        assert format_duration(0) == "0s"
+
+    def test_exact_hour(self):
+        assert format_duration(3600) == "1h 0m 0s"
+
+    def test_exact_minute(self):
+        assert format_duration(60) == "1m 0s"
+
+
+class TestExtractStats:
+    def test_normal_header(self):
+        header = {";TIME": "2659", ";Filament used": " 1.95583m"}
+        result = extract_stats(header)
+        assert result == {"time_seconds": 2659, "filament_meters": 1.96}
+
+    def test_missing_time(self):
+        header = {";Filament used": " 1.95583m"}
+        assert extract_stats(header) == {}
+
+    def test_missing_filament(self):
+        header = {";TIME": "2659"}
+        assert extract_stats(header) == {}
+
+    def test_empty_header(self):
+        assert extract_stats({}) == {}
+
+    def test_integer_filament(self):
+        header = {";TIME": "100", ";Filament used": " 3m"}
+        result = extract_stats(header)
+        assert result == {"time_seconds": 100, "filament_meters": 3.0}

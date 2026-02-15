@@ -154,6 +154,36 @@ def inject_metadata(gcode_path: Path, overrides: dict[str, str], presets: dict[s
     gcode_path.write_text(header + ";\n" + comments + ";\n" + body)
 
 
+def format_duration(seconds: int) -> str:
+    """Format seconds as human-readable duration like '1h 5m 30s'."""
+    h, remainder = divmod(seconds, 3600)
+    m, s = divmod(remainder, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    if h or m:
+        parts.append(f"{m}m")
+    parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def extract_stats(header: dict[str, str]) -> dict:
+    """Extract time and filament stats from a parsed gcode header.
+
+    Returns {"time_seconds": int, "filament_meters": float} or empty dict.
+    """
+    time_val = header.get(";TIME")
+    filament_val = header.get(";Filament used")
+    if time_val is None or filament_val is None:
+        return {}
+    try:
+        time_seconds = int(time_val)
+        filament_meters = round(float(filament_val.strip().rstrip("m")), 2)
+    except (ValueError, AttributeError):
+        return {}
+    return {"time_seconds": time_seconds, "filament_meters": filament_meters}
+
+
 def parse_gcode_header(stderr: str) -> dict[str, str]:
     """Parse the real gcode header values from CuraEngine's stderr.
 
@@ -230,10 +260,11 @@ def build_cura_command(
     return cmd
 
 
-def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None) -> tuple[bool, str, Path | None]:
-    """Slice an STL file and return (success, message, archive_path).
+def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None) -> tuple[bool, str, Path | None, dict]:
+    """Slice an STL file and return (success, message, archive_path, stats).
 
     If archive_folder is provided, use it instead of creating a new timestamped folder.
+    stats is a dict with time_seconds and filament_meters, or empty on failure.
     """
     sx, sy, sz = _resolve_scale(config.defaults, overrides)
     if needs_scaling(sx, sy, sz):
@@ -247,7 +278,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
         msgs = [f"{k}: {', '.join(tokens)}" for k, tokens in unknown.items()]
         error_msg = "Unknown gcode tokens: " + "; ".join(msgs)
         print(f"[Error] {error_msg}")
-        return False, error_msg, None
+        return False, error_msg, None, {}
 
     gcode_path = stl_path.with_suffix(".gcode")
 
@@ -271,6 +302,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
 
         if result.returncode == 0:
             header = parse_gcode_header(result.stdout + "\n" + result.stderr)
+            stats = extract_stats(header)
             if header:
                 patch_gcode_header(gcode_path, header)
                 print(f"[Header] Patched gcode header with {len(header)} values")
@@ -299,7 +331,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
                 (job_folder / "settings.txt").write_text(summary)
 
             print(f"[Success] Archived to {job_folder}")
-            return True, "Slicing completed successfully", job_folder
+            return True, "Slicing completed successfully", job_folder, stats
         else:
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
@@ -307,8 +339,8 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             output = result.stdout + result.stderr
             error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
             print(f"[Failed] {error_msg}")
-            return False, f"CuraEngine error:\n{error_msg}", error_dir
+            return False, f"CuraEngine error:\n{error_msg}", error_dir, {}
 
     except Exception as e:
         print(f"[Exception] {e}")
-        return False, f"System error: {e}", None
+        return False, f"System error: {e}", None, {}
