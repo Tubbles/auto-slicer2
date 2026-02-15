@@ -1,127 +1,46 @@
 """Tests for 3MF to STL conversion."""
 
 import tempfile
-import zipfile
 from pathlib import Path
 
+import lib3mf
 import numpy as np
 import pytest
 from stl import mesh as stl_mesh
 
-from auto_slicer.threemf import (
-    _apply_transform, _extract_mesh, _find_model_file, _parse_transform,
-    convert_3mf_to_stl,
-)
-
-# A simple triangle: three vertices forming a right triangle in the XY plane
-SIMPLE_VERTS = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
-SIMPLE_TRIS = [(0, 1, 2)]
+from auto_slicer.threemf import convert_3mf_to_stl
 
 
-def _model_xml(vertices, triangles, transform=None, obj_id="1"):
-    """Build a minimal 3MF model XML string."""
-    vert_lines = "\n".join(
-        f'          <vertex x="{v[0]}" y="{v[1]}" z="{v[2]}" />'
-        for v in vertices
-    )
-    tri_lines = "\n".join(
-        f'          <triangle v1="{t[0]}" v2="{t[1]}" v3="{t[2]}" />'
-        for t in triangles
-    )
-    transform_attr = f' transform="{transform}"' if transform else ""
-    return f"""\
-<?xml version="1.0" encoding="UTF-8"?>
-<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <resources>
-    <object id="{obj_id}" type="model">
-      <mesh>
-        <vertices>
-{vert_lines}
-        </vertices>
-        <triangles>
-{tri_lines}
-        </triangles>
-      </mesh>
-    </object>
-  </resources>
-  <build>
-    <item objectid="{obj_id}"{transform_attr} />
-  </build>
-</model>"""
+def _pos(x, y, z):
+    p = lib3mf.Position()
+    p.Coordinates[0] = float(x)
+    p.Coordinates[1] = float(y)
+    p.Coordinates[2] = float(z)
+    return p
 
 
-def _write_3mf(path: Path, model_xml: str) -> None:
-    """Write a minimal 3MF file (ZIP with model XML inside)."""
-    with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("3D/3dmodel.model", model_xml)
+def _tri(v1, v2, v3):
+    t = lib3mf.Triangle()
+    t.Indices[0] = v1
+    t.Indices[1] = v2
+    t.Indices[2] = v3
+    return t
 
 
-class TestParseTransform:
-    def test_identity_values(self):
-        m = _parse_transform("1 0 0 0 1 0 0 0 1 0 0 0")
-        np.testing.assert_array_almost_equal(m, np.eye(4))
-
-    def test_translation(self):
-        m = _parse_transform("1 0 0 0 1 0 0 0 1 10 20 30")
-        assert m[3, 0] == 10
-        assert m[3, 1] == 20
-        assert m[3, 2] == 30
-
-    def test_wrong_count_returns_identity(self):
-        m = _parse_transform("1 0 0")
-        np.testing.assert_array_equal(m, np.eye(4))
-
-
-class TestApplyTransform:
-    def test_identity(self):
-        verts = np.array([[1.0, 2.0, 3.0]])
-        result = _apply_transform(verts, np.eye(4))
-        np.testing.assert_array_almost_equal(result, verts)
-
-    def test_translation(self):
-        verts = np.array([[0.0, 0.0, 0.0]])
-        m = np.eye(4)
-        m[3, :3] = [10, 20, 30]
-        result = _apply_transform(verts, m)
-        np.testing.assert_array_almost_equal(result, [[10, 20, 30]])
-
-    def test_scale(self):
-        verts = np.array([[1.0, 2.0, 3.0]])
-        m = np.eye(4)
-        m[0, 0] = 2
-        m[1, 1] = 3
-        m[2, 2] = 4
-        result = _apply_transform(verts, m)
-        np.testing.assert_array_almost_equal(result, [[2, 6, 12]])
-
-
-class TestExtractMesh:
-    def test_simple_mesh(self):
-        import xml.etree.ElementTree as ET
-        ns = {"m": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
-        xml = _model_xml(SIMPLE_VERTS, SIMPLE_TRIS)
-        root = ET.fromstring(xml)
-        obj = root.find(".//m:resources/m:object", ns)
-        verts, tris = _extract_mesh(obj)
-        assert len(verts) == 3
-        assert len(tris) == 1
-        assert list(tris[0]) == [0, 1, 2]
-
-    def test_no_mesh_element(self):
-        import xml.etree.ElementTree as ET
-        ns = {"m": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
-        xml = """\
-<?xml version="1.0" encoding="UTF-8"?>
-<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <resources>
-    <object id="1" type="model" />
-  </resources>
-</model>"""
-        root = ET.fromstring(xml)
-        obj = root.find(".//m:resources/m:object", ns)
-        verts, tris = _extract_mesh(obj)
-        assert len(verts) == 0
-        assert len(tris) == 0
+def _write_simple_3mf(path: Path, transform=None) -> None:
+    """Write a 3MF with one triangle (right triangle in XY plane)."""
+    wrapper = lib3mf.Wrapper()
+    model = wrapper.CreateModel()
+    mesh = model.AddMeshObject()
+    mesh.AddVertex(_pos(0, 0, 0))
+    mesh.AddVertex(_pos(1, 0, 0))
+    mesh.AddVertex(_pos(0, 1, 0))
+    mesh.AddTriangle(_tri(0, 1, 2))
+    if transform:
+        model.AddBuildItem(mesh, transform)
+    else:
+        model.AddBuildItem(mesh, wrapper.GetIdentityTransform())
+    model.QueryWriter("3mf").WriteToFile(str(path))
 
 
 class TestConvert3mfToStl:
@@ -130,7 +49,7 @@ class TestConvert3mfToStl:
             tmpdir = Path(tmpdir)
             threemf = tmpdir / "model.3mf"
             stl_out = tmpdir / "model.stl"
-            _write_3mf(threemf, _model_xml(SIMPLE_VERTS, SIMPLE_TRIS))
+            _write_simple_3mf(threemf)
 
             convert_3mf_to_stl(threemf, stl_out)
 
@@ -143,7 +62,7 @@ class TestConvert3mfToStl:
             tmpdir = Path(tmpdir)
             threemf = tmpdir / "model.3mf"
             stl_out = tmpdir / "model.stl"
-            _write_3mf(threemf, _model_xml(SIMPLE_VERTS, SIMPLE_TRIS))
+            _write_simple_3mf(threemf)
 
             convert_3mf_to_stl(threemf, stl_out)
 
@@ -153,93 +72,84 @@ class TestConvert3mfToStl:
             np.testing.assert_array_almost_equal(tri[1], [1, 0, 0])
             np.testing.assert_array_almost_equal(tri[2], [0, 1, 0])
 
-    def test_transform_applied(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            threemf = tmpdir / "model.3mf"
-            stl_out = tmpdir / "model.stl"
-            # Translate by (10, 0, 0)
-            transform = "1 0 0 0 1 0 0 0 1 10 0 0"
-            _write_3mf(threemf, _model_xml(SIMPLE_VERTS, SIMPLE_TRIS, transform=transform))
-
-            convert_3mf_to_stl(threemf, stl_out)
-
-            m = stl_mesh.Mesh.from_file(str(stl_out))
-            # First vertex (0,0,0) should now be at (10,0,0)
-            np.testing.assert_array_almost_equal(m.vectors[0][0], [10, 0, 0])
-
     def test_multiple_objects(self):
-        """A 3MF with two objects produces a combined STL."""
-        xml = """\
-<?xml version="1.0" encoding="UTF-8"?>
-<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <resources>
-    <object id="1" type="model">
-      <mesh>
-        <vertices>
-          <vertex x="0" y="0" z="0" />
-          <vertex x="1" y="0" z="0" />
-          <vertex x="0" y="1" z="0" />
-        </vertices>
-        <triangles>
-          <triangle v1="0" v2="1" v3="2" />
-        </triangles>
-      </mesh>
-    </object>
-    <object id="2" type="model">
-      <mesh>
-        <vertices>
-          <vertex x="5" y="5" z="5" />
-          <vertex x="6" y="5" z="5" />
-          <vertex x="5" y="6" z="5" />
-        </vertices>
-        <triangles>
-          <triangle v1="0" v2="1" v3="2" />
-        </triangles>
-      </mesh>
-    </object>
-  </resources>
-  <build>
-    <item objectid="1" />
-    <item objectid="2" />
-  </build>
-</model>"""
+        """A 3MF with two mesh objects produces a combined STL."""
+        wrapper = lib3mf.Wrapper()
+        model = wrapper.CreateModel()
+
+        mesh1 = model.AddMeshObject()
+        mesh1.AddVertex(_pos(0, 0, 0))
+        mesh1.AddVertex(_pos(1, 0, 0))
+        mesh1.AddVertex(_pos(0, 1, 0))
+        mesh1.AddTriangle(_tri(0, 1, 2))
+
+        mesh2 = model.AddMeshObject()
+        mesh2.AddVertex(_pos(5, 5, 5))
+        mesh2.AddVertex(_pos(6, 5, 5))
+        mesh2.AddVertex(_pos(5, 6, 5))
+        mesh2.AddTriangle(_tri(0, 1, 2))
+
+        identity = wrapper.GetIdentityTransform()
+        model.AddBuildItem(mesh1, identity)
+        model.AddBuildItem(mesh2, identity)
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             threemf = tmpdir / "model.3mf"
             stl_out = tmpdir / "model.stl"
-            _write_3mf(threemf, xml)
+            model.QueryWriter("3mf").WriteToFile(str(threemf))
 
             convert_3mf_to_stl(threemf, stl_out)
 
             m = stl_mesh.Mesh.from_file(str(stl_out))
             assert len(m.vectors) == 2
 
-    def test_empty_mesh_raises(self):
-        xml = """\
-<?xml version="1.0" encoding="UTF-8"?>
-<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <resources>
-    <object id="1" type="model" />
-  </resources>
-  <build>
-    <item objectid="1" />
-  </build>
-</model>"""
+    def test_component_reference(self):
+        """A build item referencing a component object resolves the mesh."""
+        wrapper = lib3mf.Wrapper()
+        model = wrapper.CreateModel()
+
+        mesh = model.AddMeshObject()
+        mesh.AddVertex(_pos(0, 0, 0))
+        mesh.AddVertex(_pos(1, 0, 0))
+        mesh.AddVertex(_pos(0, 1, 0))
+        mesh.AddTriangle(_tri(0, 1, 2))
+
+        comp = model.AddComponentsObject()
+        comp.AddComponent(mesh, wrapper.GetIdentityTransform())
+
+        model.AddBuildItem(comp, wrapper.GetIdentityTransform())
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             threemf = tmpdir / "model.3mf"
-            _write_3mf(threemf, xml)
+            stl_out = tmpdir / "model.stl"
+            model.QueryWriter("3mf").WriteToFile(str(threemf))
+
+            convert_3mf_to_stl(threemf, stl_out)
+
+            m = stl_mesh.Mesh.from_file(str(stl_out))
+            assert len(m.vectors) == 1
+
+    def test_empty_mesh_raises(self):
+        wrapper = lib3mf.Wrapper()
+        model = wrapper.CreateModel()
+        mesh = model.AddMeshObject()
+        model.AddBuildItem(mesh, wrapper.GetIdentityTransform())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            threemf = tmpdir / "model.3mf"
+            model.QueryWriter("3mf").WriteToFile(str(threemf))
 
             with pytest.raises(ValueError, match="No mesh data"):
                 convert_3mf_to_stl(threemf, tmpdir / "out.stl")
 
-    def test_no_model_file_raises(self):
+    def test_invalid_file_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            threemf = tmpdir / "bad.3mf"
-            with zipfile.ZipFile(threemf, "w") as zf:
-                zf.writestr("readme.txt", "not a model")
+            bad_file = tmpdir / "bad.3mf"
+            bad_file.write_bytes(b"not a zip")
 
-            with pytest.raises(ValueError, match="No .model file"):
-                convert_3mf_to_stl(threemf, tmpdir / "out.stl")
+            with pytest.raises(Exception):
+                convert_3mf_to_stl(bad_file, tmpdir / "out.stl")

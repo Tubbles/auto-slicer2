@@ -24,7 +24,8 @@ python auto-slicer2.py -c /path/to/config.ini
 - Python 3.10+ (uses `X | Y` union syntax)
 - `python-telegram-bot` library
 - `aiohttp` library (HTTP API for Mini App)
-- `numpy-stl` library (STL scaling)
+- `numpy-stl` library (STL scaling + writing converted meshes)
+- `lib3mf` library (3MF→STL conversion)
 - CuraEngine binary (path configured in config.ini)
 - Cura printer definitions directory
 
@@ -59,7 +60,7 @@ auto_slicer/
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
   stl_transform.py         # STL scaling via numpy-stl (applied before slicing)
-  threemf.py               # 3MF→STL conversion (ZIP+XML parsing, numpy-stl output)
+  threemf.py               # 3MF→STL conversion via lib3mf
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
   web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
