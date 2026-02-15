@@ -254,8 +254,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     with tempfile.TemporaryDirectory() as tmpdir:
         file_path = Path(tmpdir) / document.file_name
-        file = await context.bot.get_file(document.file_id)
-        await file.download_to_drive(file_path)
+        try:
+            file = await context.bot.get_file(document.file_id)
+            await file.download_to_drive(file_path)
+        except Exception as e:
+            await update.message.reply_text(f"Download failed: {e}")
+            return
 
         if name_lower.endswith(".zip"):
             await _handle_zip(update, config, file_path, overrides)
