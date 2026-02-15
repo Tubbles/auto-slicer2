@@ -10,6 +10,7 @@ from .presets import load_presets
 from .settings_eval import _SAFE_BUILTINS, evaluate_expressions
 from .settings_registry import SettingsRegistry
 from .stl_transform import needs_scaling, scale_stl
+from .threemf import convert_3mf_to_stl
 from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
@@ -305,15 +306,20 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
     If archive_folder is provided, use it instead of creating a new timestamped folder.
     stats is a dict with time_seconds and filament_meters, or empty on failure.
     """
-    scale_warning = ""
+    original_path = stl_path
+    if stl_path.suffix.lower() == ".3mf":
+        stl_path = stl_path.with_suffix(".stl")
+        try:
+            convert_3mf_to_stl(original_path, stl_path)
+            print(f"[Convert] {original_path.name} → {stl_path.name}")
+        except Exception as e:
+            print(f"[Error] 3MF conversion failed: {e}")
+            return False, f"3MF conversion failed: {e}", None, {}
+
     sx, sy, sz = _resolve_scale(config.defaults, overrides)
     if needs_scaling(sx, sy, sz):
-        if stl_path.suffix.lower() == ".stl":
-            scale_stl(stl_path, sx, sy, sz)
-            print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
-        else:
-            scale_warning = f"Scaling skipped (not supported for {stl_path.suffix} files)"
-            print(f"[Scale] {scale_warning}")
+        scale_stl(stl_path, sx, sy, sz)
+        print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
 
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 
@@ -366,7 +372,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             job_folder.mkdir(parents=True, exist_ok=True)
 
             model_folder = job_folder.parent
-            shutil.move(str(stl_path), model_folder / stl_path.name)
+            shutil.move(str(original_path), model_folder / original_path.name)
             if gcode_path.exists():
                 shutil.move(str(gcode_path), job_folder / gcode_path.name)
 
@@ -375,14 +381,11 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
                 (job_folder / "settings.txt").write_text(summary)
 
             print(f"[Success] Archived to {job_folder}")
-            msg = "Slicing completed successfully"
-            if scale_warning:
-                msg += f"\n{scale_warning}"
-            return True, msg, job_folder, stats
+            return True, "Slicing completed successfully", job_folder, stats
         else:
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(stl_path), error_dir / stl_path.name)
+            shutil.move(str(original_path), error_dir / original_path.name)
             output = result.stdout + result.stderr
             error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
             print(f"[Failed] {error_msg}")

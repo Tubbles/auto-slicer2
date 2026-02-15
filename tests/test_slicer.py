@@ -784,13 +784,35 @@ class TestSliceFile3MF:
 
     @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
     @patch("auto_slicer.slicer.subprocess.run")
-    def test_3mf_with_scaling_skips_scale_stl(self, mock_run, mock_thumbs):
+    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    def test_3mf_converts_before_slicing(self, mock_convert, mock_run, mock_thumbs):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             model = tmpdir / "model.3mf"
             model.write_bytes(b"fake 3mf data")
-            # inject_metadata reads gcode, so create a fake one
+            # convert_3mf_to_stl is mocked, so create the STL it would produce
+            (tmpdir / "model.stl").write_text("solid test")
+            config = self._make_config(tmpdir / "archive")
+
+            success, msg, _, _ = slice_file(config, model, {})
+
+            assert success
+            mock_convert.assert_called_once_with(model, tmpdir / "model.stl")
+            # CuraEngine should receive the .stl path
+            cmd = mock_run.call_args[0][0]
+            assert any("model.stl" in arg for arg in cmd)
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    def test_3mf_with_scaling_applies_to_converted_stl(self, mock_convert, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            model = tmpdir / "model.3mf"
+            model.write_bytes(b"fake 3mf data")
+            (tmpdir / "model.stl").write_text("solid test")
             (tmpdir / "model.gcode").write_text("; header\nG28\n")
             config = self._make_config(tmpdir / "archive")
 
@@ -798,14 +820,12 @@ class TestSliceFile3MF:
                 success, msg, _, _ = slice_file(config, model, {"scale": "200"})
 
             assert success
-            mock_scale.assert_not_called()
-            assert "Scaling skipped" in msg
-            assert ".3mf" in msg
+            mock_scale.assert_called_once()
+            # scale_stl should be called on the converted .stl, not the .3mf
+            assert mock_scale.call_args[0][0] == tmpdir / "model.stl"
 
-    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
-    @patch("auto_slicer.slicer.subprocess.run")
-    def test_3mf_without_scaling_works_normally(self, mock_run, mock_thumbs):
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    @patch("auto_slicer.slicer.convert_3mf_to_stl", side_effect=ValueError("bad mesh"))
+    def test_3mf_conversion_failure(self, mock_convert):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             model = tmpdir / "model.3mf"
@@ -814,5 +834,24 @@ class TestSliceFile3MF:
 
             success, msg, _, _ = slice_file(config, model, {})
 
+            assert not success
+            assert "3MF conversion failed" in msg
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    def test_3mf_archives_original_file(self, mock_convert, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            model = tmpdir / "model.3mf"
+            model.write_bytes(b"fake 3mf data")
+            (tmpdir / "model.stl").write_text("solid test")
+            config = self._make_config(tmpdir / "archive")
+
+            success, msg, archive_path, _ = slice_file(config, model, {})
+
             assert success
-            assert "Scaling skipped" not in msg
+            # The original .3mf should be archived, not the converted .stl
+            model_dir = archive_path.parent
+            assert (model_dir / "model.3mf").exists()

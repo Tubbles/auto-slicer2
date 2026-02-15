@@ -59,6 +59,7 @@ auto_slicer/
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
   stl_transform.py         # STL scaling via numpy-stl (applied before slicing)
+  threemf.py               # 3MF→STL conversion (ZIP+XML parsing, numpy-stl output)
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
   web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
@@ -70,6 +71,7 @@ tests/
   test_settings.py         # tests for registry, matcher, validator, presets, persistence
   test_slicer.py           # tests for slicer command building, settings merge, and scaling
   test_stl_transform.py    # tests for STL scaling
+  test_threemf.py          # tests for 3MF→STL conversion
   test_eval.py             # tests for expression evaluator
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
   test_web_api.py          # tests for web API helpers and endpoints
@@ -103,10 +105,11 @@ tests/
 1. User configures settings via the Mini App (webapp)
 2. User sends STL or 3MF file as document (ZIPs containing either format also accepted)
 3. Bot downloads to temp directory
-4. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing (scaling is skipped for 3MF files with a user-facing warning)
-5. `slice_file()` invokes CuraEngine with merged settings (scale keys stripped — CuraEngine never sees them)
-6. On success: archives model+gcode+settings.txt to timestamped subfolder, notifies user with path
-7. On failure: moves model to `archive/errors/`, sends error message
+4. If the file is 3MF, `convert_3mf_to_stl()` converts it to STL (CuraEngine only accepts STL)
+5. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
+6. `slice_file()` invokes CuraEngine with merged settings (scale keys stripped — CuraEngine never sees them)
+7. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
+8. On failure: moves original model to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 
