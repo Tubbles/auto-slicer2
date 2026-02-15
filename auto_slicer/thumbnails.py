@@ -63,8 +63,8 @@ def find_header_end(lines: list[str]) -> int:
 
 def inject_thumbnails(gcode_path: Path, thumbnail_comments: str) -> None:
     """Insert thumbnail comments after the CuraEngine comment header."""
-    lines = gcode_path.read_text().splitlines(keepends=True)
+    lines = gcode_path.read_text(encoding="utf-8").splitlines(keepends=True)
     pos = find_header_end(lines)
     header = "".join(lines[:pos])
     body = "".join(lines[pos:])
-    gcode_path.write_text(header + ";\n" + thumbnail_comments + ";\n\n" + body)
+    gcode_path.write_text(encoding="utf-8", data=header + ";\n" + thumbnail_comments + ";\n\n" + body)

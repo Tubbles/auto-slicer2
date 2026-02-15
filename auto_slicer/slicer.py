@@ -187,11 +187,11 @@ def inject_metadata(gcode_path: Path, overrides: dict[str, str], presets: dict[s
     comments = format_metadata_comments(overrides, presets)
     if not comments:
         return
-    lines = gcode_path.read_text().splitlines(keepends=True)
+    lines = gcode_path.read_text(encoding="utf-8").splitlines(keepends=True)
     pos = find_header_end(lines)
     header = "".join(lines[:pos])
     body = "".join(lines[pos:])
-    gcode_path.write_text(header + ";\n" + comments + ";\n" + body)
+    gcode_path.write_text(encoding="utf-8", data=header + ";\n" + comments + ";\n" + body)
 
 
 def format_duration(seconds: int) -> str:
@@ -262,7 +262,7 @@ def patch_gcode_header(gcode_path: Path, header: dict[str, str]) -> None:
     """Replace placeholder header lines in a gcode file with real values."""
     if not header:
         return
-    content = gcode_path.read_text()
+    content = gcode_path.read_text(encoding="utf-8")
     for key, value in header.items():
         # Match lines like ";TIME:6666" and replace with ";TIME:2659"
         content = re.sub(
@@ -271,7 +271,7 @@ def patch_gcode_header(gcode_path: Path, header: dict[str, str]) -> None:
             content,
             count=1,
         )
-    gcode_path.write_text(content)
+    gcode_path.write_text(encoding="utf-8", data=content)
 
 
 def build_cura_command(
@@ -342,7 +342,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
     print(f"[Settings] {active_settings}")
 
     try:
-        result = subprocess.run(cmd, cwd=str(config.def_dir), capture_output=True, text=True)
+        result = subprocess.run(cmd, cwd=str(config.def_dir), capture_output=True, text=True, encoding="utf-8", errors="replace")
 
         if result.stdout:
             print(f"[stdout] {result.stdout}")
