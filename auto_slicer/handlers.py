@@ -190,10 +190,12 @@ async def post_shutdown(app) -> None:
         await runner.cleanup()
 
 
-def _find_stls_in_zip(zip_dir: Path) -> list[Path]:
-    """Recursively find STL files in an extracted ZIP, skipping macOS artifacts."""
+def _find_models_in_zip(zip_dir: Path) -> list[Path]:
+    """Recursively find STL/3MF files in an extracted ZIP, skipping macOS artifacts."""
+    stls = list(zip_dir.rglob("*.[sS][tT][lL]"))
+    threemfs = list(zip_dir.rglob("*.[3][mM][fF]"))
     return [
-        p for p in zip_dir.rglob("*.[sS][tT][lL]")
+        p for p in stls + threemfs
         if "__MACOSX" not in p.parts and not p.name.startswith("._")
     ]
 
@@ -216,14 +218,14 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
             await update.message.reply_text("Invalid ZIP file.")
             return
 
-        stls = _find_stls_in_zip(Path(extract_dir))
+        stls = _find_models_in_zip(Path(extract_dir))
         if not stls:
-            await update.message.reply_text("No STL files found in ZIP.")
+            await update.message.reply_text("No model files found in ZIP.")
             return
 
         n = len(stls)
         await update.message.reply_text(
-            f"Received {zip_path.name}, slicing {n} STL file{'s' if n != 1 else ''}..."
+            f"Received {zip_path.name}, slicing {n} file{'s' if n != 1 else ''}..."
         )
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -266,7 +268,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = update.message.document
     name_lower = document.file_name.lower()
 
-    if not name_lower.endswith((".stl", ".zip")):
+    if not name_lower.endswith((".stl", ".3mf", ".zip")):
         return
 
     config: Config = context.bot_data["config"]

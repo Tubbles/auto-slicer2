@@ -101,12 +101,12 @@ tests/
 ### Workflow
 
 1. User configures settings via the Mini App (webapp)
-2. User sends STL file as document
+2. User sends STL or 3MF file as document (ZIPs containing either format also accepted)
 3. Bot downloads to temp directory
-4. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
+4. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing (scaling is skipped for 3MF files with a user-facing warning)
 5. `slice_file()` invokes CuraEngine with merged settings (scale keys stripped — CuraEngine never sees them)
-6. On success: archives STL+gcode+settings.txt to timestamped subfolder, notifies user with path
-7. On failure: moves STL to `archive/errors/`, sends error message
+6. On success: archives model+gcode+settings.txt to timestamped subfolder, notifies user with path
+7. On failure: moves model to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 

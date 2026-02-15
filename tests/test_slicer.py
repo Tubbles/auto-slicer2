@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from auto_slicer.config import Config
-from auto_slicer.handlers import _find_stls_in_zip
+from auto_slicer.handlers import _find_models_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     SCALE_KEYS, _resolve_scale, _try_number,
@@ -386,16 +386,35 @@ class TestSliceFileArchiveFolder:
             assert (model_dir / "model.stl").exists()
 
 
-class TestFindStlsInZip:
+class TestFindModelsInZip:
     def test_finds_stls(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "a.stl").touch()
             (root / "sub").mkdir()
             (root / "sub" / "b.STL").touch()
-            result = _find_stls_in_zip(root)
+            result = _find_models_in_zip(root)
             names = {p.name for p in result}
             assert names == {"a.stl", "b.STL"}
+
+    def test_finds_3mf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "model.3mf").touch()
+            (root / "sub").mkdir()
+            (root / "sub" / "other.3MF").touch()
+            result = _find_models_in_zip(root)
+            names = {p.name for p in result}
+            assert names == {"model.3mf", "other.3MF"}
+
+    def test_finds_mixed_stl_and_3mf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.stl").touch()
+            (root / "b.3mf").touch()
+            result = _find_models_in_zip(root)
+            names = {p.name for p in result}
+            assert names == {"a.stl", "b.3mf"}
 
     def test_skips_macosx(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -404,7 +423,7 @@ class TestFindStlsInZip:
             macos = root / "__MACOSX"
             macos.mkdir()
             (macos / "bad.stl").touch()
-            result = _find_stls_in_zip(root)
+            result = _find_models_in_zip(root)
             assert len(result) == 1
             assert result[0].name == "good.stl"
 
@@ -413,13 +432,13 @@ class TestFindStlsInZip:
             root = Path(tmpdir)
             (root / "good.stl").touch()
             (root / "._hidden.stl").touch()
-            result = _find_stls_in_zip(root)
+            result = _find_models_in_zip(root)
             assert len(result) == 1
             assert result[0].name == "good.stl"
 
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            assert _find_stls_in_zip(Path(tmpdir)) == []
+            assert _find_models_in_zip(Path(tmpdir)) == []
 
 
 class TestMatchingPresets:
@@ -749,3 +768,51 @@ class TestExtractStats:
         header = {";TIME": "100", ";Filament used": " 3m"}
         result = extract_stats(header)
         assert result == {"time_seconds": 100, "filament_meters": 3.0}
+
+
+class TestSliceFile3MF:
+    def _make_config(self, archive_dir):
+        config = MagicMock(spec=Config)
+        config.archive_dir = Path(archive_dir)
+        config.registry = _make_registry([_make_setting("layer_height", default_value=0.2)])
+        config.defaults = {}
+        config.forced_keys = set()
+        config.cura_bin = Path("/usr/bin/CuraEngine")
+        config.def_dir = Path("/defs")
+        config.printer_def = "printer.def.json"
+        return config
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_3mf_with_scaling_skips_scale_stl(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            model = tmpdir / "model.3mf"
+            model.write_bytes(b"fake 3mf data")
+            # inject_metadata reads gcode, so create a fake one
+            (tmpdir / "model.gcode").write_text("; header\nG28\n")
+            config = self._make_config(tmpdir / "archive")
+
+            with patch("auto_slicer.slicer.scale_stl") as mock_scale:
+                success, msg, _, _ = slice_file(config, model, {"scale": "200"})
+
+            assert success
+            mock_scale.assert_not_called()
+            assert "Scaling skipped" in msg
+            assert ".3mf" in msg
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_3mf_without_scaling_works_normally(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            model = tmpdir / "model.3mf"
+            model.write_bytes(b"fake 3mf data")
+            config = self._make_config(tmpdir / "archive")
+
+            success, msg, _, _ = slice_file(config, model, {})
+
+            assert success
+            assert "Scaling skipped" not in msg

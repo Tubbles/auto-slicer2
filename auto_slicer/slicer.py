@@ -305,10 +305,15 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
     If archive_folder is provided, use it instead of creating a new timestamped folder.
     stats is a dict with time_seconds and filament_meters, or empty on failure.
     """
+    scale_warning = ""
     sx, sy, sz = _resolve_scale(config.defaults, overrides)
     if needs_scaling(sx, sy, sz):
-        scale_stl(stl_path, sx, sy, sz)
-        print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
+        if stl_path.suffix.lower() == ".stl":
+            scale_stl(stl_path, sx, sy, sz)
+            print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
+        else:
+            scale_warning = f"Scaling skipped (not supported for {stl_path.suffix} files)"
+            print(f"[Scale] {scale_warning}")
 
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 
@@ -370,7 +375,10 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
                 (job_folder / "settings.txt").write_text(summary)
 
             print(f"[Success] Archived to {job_folder}")
-            return True, "Slicing completed successfully", job_folder, stats
+            msg = "Slicing completed successfully"
+            if scale_warning:
+                msg += f"\n{scale_warning}"
+            return True, msg, job_folder, stats
         else:
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
