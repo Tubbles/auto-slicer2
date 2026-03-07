@@ -1193,7 +1193,8 @@ function initScene() {
   const height = container.clientHeight || 300;
 
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
-  camera.position.set(200, 200, 200);
+  camera.up.set(0, 0, 1);
+  camera.position.set(200, -200, 150);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(width, height);
@@ -1272,7 +1273,7 @@ function loadSTL(arrayBuffer) {
   const size = new THREE.Vector3();
   origBox.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z);
-  camera.position.set(center.x + maxDim * 1.5, center.y + maxDim, center.z + maxDim * 1.5);
+  camera.position.set(center.x + maxDim * 1.5, center.y - maxDim * 1.2, center.z + maxDim);
   controls.target.copy(center);
   controls.update();
 
