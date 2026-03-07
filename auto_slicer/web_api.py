@@ -405,9 +405,10 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
         return web.json_response({"error": "slicing already in progress"}, status=409)
 
     overrides = user_settings.get(user_id, {})
-    # Copy file to a fresh temp dir since slice_file moves files around
+    # Copy the resolved STL (not the original ZIP/3MF) to a fresh temp dir
+    # since slice_file moves files around
     slice_dir = tempfile.mkdtemp(prefix="slicer_slice_")
-    src = Path(info["original_path"])
+    src = Path(info["stl_path"])
     dst = Path(slice_dir) / src.name
     shutil.copy2(src, dst)
 
