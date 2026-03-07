@@ -380,6 +380,17 @@
     cursor: not-allowed;
   }
   .upload-slice-btn:active:not(:disabled) { opacity: 0.7; }
+  .upload-clear-btn {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--hint);
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .upload-clear-btn:active { opacity: 0.7; }
 
   .upload-result {
     padding: 10px 12px;
@@ -422,6 +433,7 @@
   <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
+    <button class="upload-clear-btn" id="upload-clear-btn">Clear</button>
     <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
   </div>
   <div id="upload-result"></div>
@@ -1531,6 +1543,47 @@ function showResult(success, message) {
   const el = document.getElementById('upload-result');
   el.className = 'upload-result ' + (success ? 'success' : 'failure');
   el.textContent = message;
+}
+
+// --- Clear upload ---
+
+const clearBtn = document.getElementById('upload-clear-btn');
+clearBtn.addEventListener('click', clearUpload);
+
+async function clearUpload() {
+  if (uploadFileId) {
+    try {
+      await fetch(API_BASE + `/api/upload/${uploadFileId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + TOKEN },
+      });
+    } catch (_) { /* ignore */ }
+  }
+  uploadFileId = null;
+
+  if (modelMesh) {
+    scene.remove(modelMesh);
+    modelMesh.geometry.dispose();
+    modelMesh.material.dispose();
+    modelMesh = null;
+  }
+  originalGeometry = null;
+  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
+  if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
+  if (bedBox) { scene.remove(bedBox); bedBox = null; }
+
+  document.getElementById('upload-viewport').style.display = 'none';
+  document.getElementById('upload-dims').style.display = 'none';
+  document.getElementById('upload-actions').style.display = 'none';
+  document.getElementById('upload-result').innerHTML = '';
+  document.getElementById('upload-slice-btn').disabled = true;
+  document.getElementById('upload-slice-btn').textContent = 'Slice';
+
+  zoneText.innerHTML = 'Drag &amp; drop or tap to select<br>STL / 3MF / ZIP';
+  zone.classList.remove('has-file');
+  fileInput.value = '';
+
+  setStatus('');
 }
 
 // --- Visibility ---
