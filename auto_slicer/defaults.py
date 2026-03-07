@@ -13,6 +13,15 @@ SETTINGS: dict[str, dict] = {
     "scale": {
         "default_value": "100",
     },
+    "rotation_x": {
+        "default_value": "0",
+    },
+    "rotation_y": {
+        "default_value": "0",
+    },
+    "rotation_z": {
+        "default_value": "0",
+    },
     "layer_height": {
         "default_value": "0.2",
     },

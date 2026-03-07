@@ -10,7 +10,7 @@ from auto_slicer.config import Config
 from auto_slicer.handlers import _find_models_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
-    SCALE_KEYS, _resolve_scale, _try_number,
+    SCALE_KEYS, TRANSFORM_KEYS, _resolve_rotation, _resolve_scale, _try_number,
     build_cura_command, expand_gcode_tokens, extract_stats,
     find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
@@ -725,6 +725,97 @@ class TestScaleKeysStripped:
         result = resolve_settings(reg, {}, {"scale": "200", "scale_x": "300"})
         for key in SCALE_KEYS:
             assert key not in result
+
+
+class TestResolveRotation:
+    def test_defaults_to_zero(self):
+        assert _resolve_rotation({}, {}) == (0.0, 0.0, 0.0)
+
+    def test_config_defaults(self):
+        assert _resolve_rotation({"rotation_z": "45"}, {}) == (0.0, 0.0, 45.0)
+
+    def test_user_overrides_win(self):
+        rx, ry, rz = _resolve_rotation({"rotation_z": "45"}, {"rotation_z": "90"})
+        assert rz == 90.0
+
+    def test_per_axis(self):
+        rx, ry, rz = _resolve_rotation({}, {"rotation_x": "10", "rotation_y": "20", "rotation_z": "30"})
+        assert rx == 10.0
+        assert ry == 20.0
+        assert rz == 30.0
+
+
+class TestRotationKeysStripped:
+    def test_rotation_keys_absent_from_resolved(self):
+        reg = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("rotation_x", default_value=0.0),
+            _make_setting("rotation_y", default_value=0.0),
+            _make_setting("rotation_z", default_value=0.0),
+        ])
+        result = resolve_settings(reg, {"rotation_z": "45"}, {})
+        for key in ("rotation_x", "rotation_y", "rotation_z"):
+            assert key not in result
+
+    def test_transform_keys_includes_rotation(self):
+        assert "rotation_x" in TRANSFORM_KEYS
+        assert "rotation_y" in TRANSFORM_KEYS
+        assert "rotation_z" in TRANSFORM_KEYS
+
+
+class TestSliceFileRotation:
+    def _make_config(self, archive_dir):
+        config = MagicMock(spec=Config)
+        config.archive_dir = Path(archive_dir)
+        config.registry = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("mesh_rotation_matrix", setting_type="str",
+                          default_value="[[1,0,0], [0,1,0], [0,0,1]]"),
+        ])
+        config.defaults = {}
+        config.forced_keys = set()
+        config.cura_bin = Path("/usr/bin/CuraEngine")
+        config.def_dir = Path("/defs")
+        config.printer_def = "printer.def.json"
+        return config
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_rotation_injects_matrix(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            stl = tmpdir / "model.stl"
+            stl.write_text("solid test")
+            (tmpdir / "model.gcode").write_text("; header\nG28\n")
+            config = self._make_config(tmpdir / "archive")
+
+            success, _, _, _ = slice_file(config, stl, {"rotation_z": "90"})
+
+            assert success
+            cmd = mock_run.call_args[0][0]
+            # mesh_rotation_matrix should appear in the command
+            matrix_args = [a for a in cmd if "mesh_rotation_matrix" in a]
+            assert len(matrix_args) == 1
+            assert "mesh_rotation_matrix=" in matrix_args[0]
+
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_no_rotation_no_matrix(self, mock_run, mock_thumbs):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            stl = tmpdir / "model.stl"
+            stl.write_text("solid test")
+            (tmpdir / "model.gcode").write_text("; header\nG28\n")
+            config = self._make_config(tmpdir / "archive")
+
+            success, _, _, _ = slice_file(config, stl, {})
+
+            assert success
+            cmd = mock_run.call_args[0][0]
+            matrix_args = [a for a in cmd if "mesh_rotation_matrix" in a]
+            assert len(matrix_args) == 0
 
 
 class TestFormatDuration:

@@ -54,16 +54,17 @@ auto_slicer/
   config.py                # Config class, permission checks
   slicer.py                # slice_file()
   handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
+  file_utils.py            # Shared helpers (find_models_in_zip)
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
   settings_match.py        # resolve_setting() fuzzy/natural language resolution
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
-  stl_transform.py         # STL scaling via numpy-stl (applied before slicing)
+  stl_transform.py         # STL scaling + rotation matrix via numpy-stl
   threemf.py               # 3MF→STL conversion via lib3mf
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
-  web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth)
+  web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth, model upload + slicing)
 auto-slicer2.py            # thin entry point (argparse, app wiring)
 starred_keys.default.json  # default starred settings template (checked in)
 webapp/
@@ -71,7 +72,7 @@ webapp/
 tests/
   test_settings.py         # tests for registry, matcher, validator, presets, persistence
   test_slicer.py           # tests for slicer command building, settings merge, and scaling
-  test_stl_transform.py    # tests for STL scaling
+  test_stl_transform.py    # tests for STL scaling and rotation matrix
   test_threemf.py          # tests for 3MF→STL conversion
   test_eval.py             # tests for expression evaluator
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
@@ -101,16 +102,21 @@ tests/
 
 **API authentication**: Ephemeral Bearer tokens with 30-minute sliding TTL and 24-hour max TTL. The `/webapp` bot command generates a random token, stores `(user_id, expiry, created)` in memory, and embeds it in the webapp URL. The frontend sends `Authorization: Bearer <token>` on all requests. The auth middleware validates tokens and refreshes expiry on each use. `/api/health` is the only endpoint that does not require a Bearer token. `web_auth.py` (initData HMAC validation) is retained but no longer used for API auth.
 
+**Model transforms** (`stl_transform.py`): Scaling via numpy-stl (modifies STL in place). Rotation via `euler_to_rotation_matrix()` which converts `rotation_x/y/z` (degrees) into CuraEngine's `mesh_rotation_matrix` string (3×3 matrix, `Rz * Ry * Rx` order). Rotation is applied by CuraEngine natively — we just inject the matrix setting. The `rotation_x/y/z` keys are custom (not in fdmprinter.def.json) and stripped before sending to CuraEngine, while `mesh_rotation_matrix` is a real CuraEngine setting that gets injected when any rotation angle is nonzero.
+
+**Upload & Slice via webapp** (`web_api.py`): The "Upload" tab in the Mini App allows uploading STL/3MF/ZIP files via `POST /api/upload`, previewing the model with three.js (bounding box + bed outline), and triggering slicing via `POST /api/upload/{file_id}/slice`. Uploads are stored in temp directories with 30-minute TTL. Slicing runs async via `asyncio.create_task` + `asyncio.to_thread`, with status polling via `GET /api/upload/{file_id}/status`.
+
 ### Workflow
 
 1. User configures settings via the Mini App (webapp)
-2. User sends STL or 3MF file as document (ZIPs containing either format also accepted)
-3. Bot downloads to temp directory
+2. User sends STL or 3MF file as document (ZIPs also accepted), OR uploads via the webapp Upload tab
+3. Bot downloads to temp directory (or webapp stores upload in temp dir)
 4. If the file is 3MF, `convert_3mf_to_stl()` converts it to STL (CuraEngine only accepts STL)
 5. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
-6. `slice_file()` invokes CuraEngine with merged settings (scale keys stripped — CuraEngine never sees them)
-7. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
-8. On failure: moves original model to `archive/errors/`, sends error message
+6. If rotation settings are nonzero, `euler_to_rotation_matrix()` computes the matrix and injects `mesh_rotation_matrix`
+7. `slice_file()` invokes CuraEngine with merged settings (transform keys stripped — CuraEngine never sees them, except `mesh_rotation_matrix`)
+8. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
+9. On failure: moves original model to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 

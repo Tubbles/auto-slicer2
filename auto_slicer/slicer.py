@@ -9,12 +9,15 @@ from .config import Config
 from .presets import load_presets
 from .settings_eval import _SAFE_BUILTINS, evaluate_expressions
 from .settings_registry import SettingsRegistry
-from .stl_transform import needs_scaling, scale_stl
+from .stl_transform import euler_to_rotation_matrix, needs_rotation, needs_scaling, scale_stl
 from .threemf import convert_3mf_to_stl
 from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
-SCALE_KEYS = {"scale", "scale_x", "scale_y", "scale_z"}
+ROTATION_KEYS = {"rotation_x", "rotation_y", "rotation_z"}
+TRANSFORM_KEYS = {"scale", "scale_x", "scale_y", "scale_z"} | ROTATION_KEYS
+# Keep SCALE_KEYS as alias for backwards compatibility in tests
+SCALE_KEYS = TRANSFORM_KEYS
 
 
 def _eval_gcode_expr(expr: str, namespace: dict) -> str:
@@ -88,6 +91,15 @@ def _resolve_scale(config_defaults: dict[str, str], overrides: dict[str, str]) -
     return sx, sy, sz
 
 
+def _resolve_rotation(config_defaults: dict[str, str], overrides: dict[str, str]) -> tuple[float, float, float]:
+    """Resolve per-axis rotation angles (degrees) from defaults and overrides."""
+    merged = {**config_defaults, **overrides}
+    rx = float(merged.get("rotation_x", "0"))
+    ry = float(merged.get("rotation_y", "0"))
+    rz = float(merged.get("rotation_z", "0"))
+    return rx, ry, rz
+
+
 def resolve_settings(
     registry: SettingsRegistry,
     config_defaults: dict[str, str],
@@ -134,8 +146,8 @@ def resolve_settings(
         if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
 
-    # Strip custom scale keys — they're handled before slicing, not by CuraEngine
-    for key in SCALE_KEYS:
+    # Strip custom transform keys — they're handled before slicing, not by CuraEngine
+    for key in TRANSFORM_KEYS:
         resolved.pop(key, None)
 
     return resolved
@@ -320,6 +332,11 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
     if needs_scaling(sx, sy, sz):
         scale_stl(stl_path, sx, sy, sz)
         print(f"[Scale] Applied scaling: X={sx}% Y={sy}% Z={sz}%")
+
+    rx, ry, rz = _resolve_rotation(config.defaults, overrides)
+    if needs_rotation(rx, ry, rz):
+        overrides = {**overrides, "mesh_rotation_matrix": euler_to_rotation_matrix(rx, ry, rz)}
+        print(f"[Rotation] Applied rotation: X={rx}\u00b0 Y={ry}\u00b0 Z={rz}\u00b0")
 
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 

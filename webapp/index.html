@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Auto-Slicer Settings</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #fff);
@@ -283,6 +291,110 @@
     padding: 40px 0;
     color: var(--hint);
   }
+
+  /* Upload tab */
+  .upload-zone {
+    border: 2px dashed var(--hint);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    color: var(--hint);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin: 8px 0;
+  }
+  .upload-zone.dragover {
+    border-color: var(--link);
+    background: color-mix(in srgb, var(--link) 8%, transparent);
+  }
+  .upload-zone.has-file {
+    border-style: solid;
+    border-color: var(--link);
+    color: var(--text);
+  }
+  .upload-zone input { display: none; }
+
+  .upload-viewport {
+    width: 100%;
+    height: 300px;
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 8px 0;
+    background: var(--secondary-bg);
+    position: relative;
+  }
+  .upload-viewport canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .upload-dims {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    gap: 4px 12px;
+    font-size: 13px;
+    margin: 8px 0;
+    font-family: monospace;
+  }
+  .upload-dims-header {
+    font-weight: 600;
+    color: var(--hint);
+    font-size: 11px;
+    text-transform: uppercase;
+    padding-bottom: 2px;
+  }
+  .upload-dims-axis { color: var(--hint); font-weight: 600; }
+  .upload-dims-warn {
+    grid-column: 1 / -1;
+    color: #e53935;
+    font-weight: 500;
+    padding-top: 4px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .upload-dims-bed {
+    grid-column: 1 / -1;
+    color: var(--hint);
+    font-size: 12px;
+    padding-top: 2px;
+  }
+
+  .upload-actions {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .upload-slice-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    background: var(--btn);
+    color: var(--btn-text);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .upload-slice-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .upload-slice-btn:active:not(:disabled) { opacity: 0.7; }
+
+  .upload-result {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin: 8px 0;
+  }
+  .upload-result.success {
+    background: color-mix(in srgb, #4caf50 12%, var(--secondary-bg));
+    color: var(--text);
+  }
+  .upload-result.failure {
+    background: color-mix(in srgb, #e53935 12%, var(--secondary-bg));
+    color: var(--text);
+  }
 </style>
 </head>
 <body>
@@ -296,10 +408,24 @@
   <button class="tab" data-filter="modified">Modified</button>
   <button class="tab" data-filter="presets">Presets</button>
   <button class="tab" data-filter="all">All</button>
+  <button class="tab" data-filter="upload">Upload</button>
   <span id="clear-all-container"></span>
 </div>
 
 <div id="presets-container" style="display:none"></div>
+
+<div id="upload-container" style="display:none">
+  <div class="upload-zone" id="upload-zone">
+    <input type="file" id="upload-input" accept=".stl,.3mf,.zip">
+    <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / ZIP</div>
+  </div>
+  <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
+  <div class="upload-dims" id="upload-dims" style="display:none"></div>
+  <div class="upload-actions" id="upload-actions" style="display:none">
+    <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
+  </div>
+  <div id="upload-result"></div>
+</div>
 
 <div id="settings-container">
   <div class="loading" id="loading">Loading settings...</div>
@@ -318,10 +444,22 @@ const params = new URLSearchParams(location.search);
 const API_BASE = params.get('api') || '';
 const TOKEN = params.get('token') || '';
 
+// Expose for module scripts (three.js upload tab)
+window.API_BASE = API_BASE;
+window.TOKEN = TOKEN;
+
 let registry = null;
 let overrides = {};
 let original = {};
 let pendingChanges = {};
+
+// Keep window refs in sync for module scripts
+function syncGlobals() {
+  window.registry = registry;
+  window.overrides = overrides;
+  window.pendingChanges = pendingChanges;
+}
+syncGlobals();
 
 let starredKeys = new Set();
 let computedValues = {};
@@ -340,6 +478,7 @@ function handleAuthError(r) {
   }
   return false;
 }
+window.handleAuthError = handleAuthError;
 
 // --- API ---
 
@@ -714,8 +853,11 @@ function buildResetBtn(key) {
 
 // --- Events ---
 
+const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z']);
+
 function onChange(key, value) {
   pendingChanges[key] = value;
+  syncGlobals();
   const el = document.querySelector(`.setting[data-key="${key}"]`);
   if (el && !el.classList.contains('modified')) {
     el.classList.add('modified');
@@ -726,6 +868,9 @@ function onChange(key, value) {
   }
   updateMainButton();
   scheduleRecompute();
+  if (UPLOAD_TRANSFORM_KEYS.has(key) && window._updateUploadTransforms) {
+    window._updateUploadTransforms();
+  }
 }
 
 function onReset(key) {
@@ -734,9 +879,13 @@ function onReset(key) {
   } else {
     delete pendingChanges[key];
   }
+  syncGlobals();
   render();
   haptic();
   scheduleRecompute();
+  if (UPLOAD_TRANSFORM_KEYS.has(key) && window._updateUploadTransforms) {
+    window._updateUploadTransforms();
+  }
 }
 
 function haptic() {
@@ -766,13 +915,15 @@ document.querySelectorAll('.tab').forEach(tab => {
     currentFilter = tab.dataset.filter;
 
     const isPresets = currentFilter === 'presets';
-    document.getElementById('settings-container').style.display = isPresets ? 'none' : '';
+    const isUpload = currentFilter === 'upload';
+    document.getElementById('settings-container').style.display = (isPresets || isUpload) ? 'none' : '';
     document.getElementById('presets-container').style.display = isPresets ? '' : 'none';
-    document.querySelector('.search-bar').style.display = isPresets ? 'none' : '';
+    document.getElementById('upload-container').style.display = isUpload ? '' : 'none';
+    document.querySelector('.search-bar').style.display = (isPresets || isUpload) ? 'none' : '';
 
     if (isPresets) {
       renderPresetsTab();
-    } else {
+    } else if (!isUpload) {
       applyFilter();
     }
   });
@@ -904,6 +1055,7 @@ function renderClearAllBtn() {
       await deleteSettings();
       overrides = {};
       pendingChanges = {};
+      syncGlobals();
       render();
       renderClearAllBtn();
       recompute();
@@ -950,6 +1102,7 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
       for (const k of appliedKeys) overrides[k] = result.applied[k];
       for (const k of toRemove) delete overrides[k];
       pendingChanges = {};
+      syncGlobals();
       render();
       recompute();
 
@@ -975,6 +1128,7 @@ function setStatus(msg, isError) {
     setTimeout(() => { el.textContent = ''; }, 5000);
   }
 }
+window.setStatus = setStatus;
 
 // --- Init ---
 
@@ -993,6 +1147,7 @@ async function init() {
     original = { ...settings };
     starredKeys = starred;
     reverseDeps = reg.reverse_deps || {};
+    syncGlobals();
 
     document.getElementById('loading').remove();
     renderPresetsTab();
@@ -1004,6 +1159,390 @@ async function init() {
 }
 
 init();
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// Aliases for globals from the main script
+const API_BASE = window.API_BASE;
+const TOKEN = window.TOKEN;
+const handleAuthError = (...a) => window.handleAuthError(...a);
+const setStatus = (...a) => window.setStatus(...a);
+
+// --- Three.js upload scene ---
+
+let scene, camera, renderer, controls;
+let modelMesh = null;
+let originalGeometry = null;
+let originalBoxHelper = null;
+let transformedBoxHelper = null;
+let bedBox = null;
+let uploadFileId = null;
+let sceneReady = false;
+let animating = false;
+
+function initScene() {
+  if (sceneReady) return;
+  const container = document.getElementById('upload-viewport');
+
+  scene = new THREE.Scene();
+  const width = container.clientWidth;
+  const height = container.clientHeight || 300;
+
+  camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+  camera.position.set(200, 200, 200);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  scene.add(new THREE.AmbientLight(0x666666));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(1, 1, 1);
+  scene.add(dirLight);
+  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+  dirLight2.position.set(-1, -0.5, -1);
+  scene.add(dirLight2);
+
+  sceneReady = true;
+  startAnimate();
+}
+
+function startAnimate() {
+  if (animating) return;
+  animating = true;
+  function loop() {
+    if (!animating) return;
+    requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  loop();
+}
+
+function stopAnimate() {
+  animating = false;
+}
+
+function loadSTL(arrayBuffer) {
+  initScene();
+  const loader = new STLLoader();
+  const geometry = loader.parse(arrayBuffer);
+
+  // Clean up old model
+  if (modelMesh) {
+    scene.remove(modelMesh);
+    modelMesh.geometry.dispose();
+    modelMesh.material.dispose();
+  }
+  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
+  if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
+  if (bedBox) { scene.remove(bedBox); bedBox = null; }
+
+  const material = new THREE.MeshPhongMaterial({
+    color: 0x4488cc,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+  });
+  modelMesh = new THREE.Mesh(geometry, material);
+  scene.add(modelMesh);
+
+  originalGeometry = geometry;
+  geometry.computeBoundingBox();
+
+  // Original bbox wireframe (green)
+  const origBox = geometry.boundingBox.clone();
+  originalBoxHelper = new THREE.Box3Helper(origBox, 0x44aa44);
+  scene.add(originalBoxHelper);
+
+  // Add bed outline
+  addBedOutline();
+
+  // Fit camera to model
+  const center = new THREE.Vector3();
+  origBox.getCenter(center);
+  const size = new THREE.Vector3();
+  origBox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  camera.position.set(center.x + maxDim * 1.5, center.y + maxDim, center.z + maxDim * 1.5);
+  controls.target.copy(center);
+  controls.update();
+
+  updateTransforms();
+}
+
+function addBedOutline() {
+  if (bedBox) { scene.remove(bedBox); bedBox = null; }
+  const bed = getBedDims();
+  if (!bed) return;
+
+  const geo = new THREE.BufferGeometry();
+  const hw = bed.width / 2, hd = bed.depth / 2;
+  const verts = new Float32Array([
+    -hw, -hd, 0, hw, -hd, 0,
+    hw, -hd, 0, hw, hd, 0,
+    hw, hd, 0, -hw, hd, 0,
+    -hw, hd, 0, -hw, -hd, 0,
+  ]);
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  bedBox = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x888888, opacity: 0.5, transparent: true }));
+  scene.add(bedBox);
+}
+
+function getBedDims() {
+  if (!window.registry) return null;
+  function findDefault(key) {
+    if (window.registry.defaults && window.registry.defaults[key] != null) return parseFloat(window.registry.defaults[key]);
+    const s = window.registry.settings.find(x => x.key === key);
+    return s ? parseFloat(s.default_value) : null;
+  }
+  const w = findDefault('machine_width');
+  const d = findDefault('machine_depth');
+  const h = findDefault('machine_height');
+  if (w == null || d == null || h == null) return null;
+  return { width: w, depth: d, height: h };
+}
+
+function getTransformVal(key, fallback) {
+  const pc = window.pendingChanges || {};
+  const ov = window.overrides || {};
+  const defs = (window.registry && window.registry.defaults) || {};
+  if (key in pc && pc[key] !== null) return parseFloat(pc[key]);
+  if (key in ov) return parseFloat(ov[key]);
+  if (key in defs) return parseFloat(defs[key]);
+  return fallback;
+}
+
+function updateTransforms() {
+  if (!modelMesh || !originalGeometry) return;
+
+  const masterScale = getTransformVal('scale', 100);
+  const sx = getTransformVal('scale_x', masterScale);
+  const sy = getTransformVal('scale_y', masterScale);
+  const sz = getTransformVal('scale_z', masterScale);
+  const rx = getTransformVal('rotation_x', 0);
+  const ry = getTransformVal('rotation_y', 0);
+  const rz = getTransformVal('rotation_z', 0);
+
+  modelMesh.scale.set(sx / 100, sy / 100, sz / 100);
+  modelMesh.rotation.set(
+    rx * Math.PI / 180,
+    ry * Math.PI / 180,
+    rz * Math.PI / 180,
+    'ZYX',
+  );
+
+  // Update transformed bbox
+  if (transformedBoxHelper) scene.remove(transformedBoxHelper);
+  const transformedBox = new THREE.Box3().setFromObject(modelMesh);
+  transformedBoxHelper = new THREE.Box3Helper(transformedBox, 0xee8833);
+  scene.add(transformedBoxHelper);
+
+  updateDimsDisplay();
+}
+
+function updateDimsDisplay() {
+  if (!originalGeometry || !originalGeometry.boundingBox) return;
+  const dimsEl = document.getElementById('upload-dims');
+
+  const origSize = new THREE.Vector3();
+  originalGeometry.boundingBox.getSize(origSize);
+
+  const transBox = new THREE.Box3().setFromObject(modelMesh);
+  const transSize = new THREE.Vector3();
+  transBox.getSize(transSize);
+
+  const bed = getBedDims();
+  const warnings = [];
+  if (bed) {
+    if (transSize.x > bed.width) warnings.push('X');
+    if (transSize.y > bed.depth) warnings.push('Y');
+    if (transSize.z > bed.height) warnings.push('Z');
+  }
+
+  const fmt = v => v.toFixed(1);
+  let html = '';
+  html += '<div class="upload-dims-header"></div><div class="upload-dims-header">Original</div><div class="upload-dims-header">Transformed</div>';
+  html += `<div class="upload-dims-axis">X</div><div>${fmt(origSize.x)} mm</div><div>${fmt(transSize.x)} mm</div>`;
+  html += `<div class="upload-dims-axis">Y</div><div>${fmt(origSize.y)} mm</div><div>${fmt(transSize.y)} mm</div>`;
+  html += `<div class="upload-dims-axis">Z</div><div>${fmt(origSize.z)} mm</div><div>${fmt(transSize.z)} mm</div>`;
+  if (bed) {
+    html += `<div class="upload-dims-bed">Bed: ${fmt(bed.width)} × ${fmt(bed.depth)} × ${fmt(bed.height)} mm</div>`;
+  }
+  if (warnings.length > 0) {
+    html += `<div class="upload-dims-warn">Exceeds bed in ${warnings.join(', ')}!</div>`;
+  }
+  dimsEl.innerHTML = html;
+}
+
+// --- File upload ---
+
+const zone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('upload-input');
+const zoneText = document.getElementById('upload-zone-text');
+
+zone.addEventListener('click', () => fileInput.click());
+zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  zone.classList.remove('dragover');
+  if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length > 0) handleFile(fileInput.files[0]);
+});
+
+async function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['stl', '3mf', 'zip'].includes(ext)) {
+    setStatus('Unsupported file type. Send STL, 3MF, or ZIP.', true);
+    return;
+  }
+
+  zoneText.textContent = file.name;
+  zone.classList.add('has-file');
+  document.getElementById('upload-result').innerHTML = '';
+
+  // Upload to server
+  setStatus('Uploading...');
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const r = await fetch(API_BASE + '/api/upload', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+      body: formData,
+    });
+    if (handleAuthError(r)) return;
+    if (!r.ok) {
+      const err = await r.json();
+      setStatus(err.error || 'Upload failed', true);
+      return;
+    }
+    const data = await r.json();
+    uploadFileId = data.file_id;
+
+    // Fetch the STL binary for three.js
+    const modelResp = await fetch(API_BASE + `/api/upload/${uploadFileId}/model`, {
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+    });
+    if (!modelResp.ok) {
+      setStatus('Failed to load model for preview', true);
+      return;
+    }
+    const buf = await modelResp.arrayBuffer();
+
+    document.getElementById('upload-viewport').style.display = '';
+    document.getElementById('upload-dims').style.display = '';
+    document.getElementById('upload-actions').style.display = '';
+    document.getElementById('upload-slice-btn').disabled = false;
+
+    loadSTL(buf);
+    setStatus(`Uploaded ${data.filename}`);
+  } catch (e) {
+    setStatus('Upload error: ' + e.message, true);
+  }
+}
+
+// --- Slicing ---
+
+const sliceBtn = document.getElementById('upload-slice-btn');
+sliceBtn.addEventListener('click', startSlice);
+
+async function startSlice() {
+  if (!uploadFileId) return;
+  sliceBtn.disabled = true;
+  sliceBtn.textContent = 'Slicing...';
+  document.getElementById('upload-result').innerHTML = '';
+  setStatus('Slicing...');
+
+  try {
+    const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/slice`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+    });
+    if (handleAuthError(r)) return;
+    if (!r.ok) {
+      const err = await r.json();
+      showResult(false, err.error || 'Failed to start slicing');
+      return;
+    }
+
+    // Poll for status
+    pollStatus();
+  } catch (e) {
+    showResult(false, 'Slice error: ' + e.message);
+  }
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/status`, {
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+    });
+    if (handleAuthError(r)) return;
+    const data = await r.json();
+
+    if (data.status === 'slicing') {
+      setTimeout(pollStatus, 2000);
+      return;
+    }
+
+    if (data.status === 'done') {
+      if (data.success) {
+        let msg = 'Slicing completed!';
+        if (data.archive_path) msg += `\nArchived to: ${data.archive_path}`;
+        if (data.stats && data.stats.time_seconds != null) {
+          const t = data.stats.time_seconds;
+          const h = Math.floor(t / 3600);
+          const m = Math.floor((t % 3600) / 60);
+          const s = t % 60;
+          const parts = [];
+          if (h) parts.push(h + 'h');
+          if (h || m) parts.push(m + 'm');
+          parts.push(s + 's');
+          msg += `\nTime: ${parts.join(' ')} | Filament: ${data.stats.filament_meters}m`;
+        }
+        showResult(true, msg);
+      } else {
+        showResult(false, data.message || 'Slicing failed');
+      }
+    }
+  } catch (e) {
+    showResult(false, 'Status check failed: ' + e.message);
+  }
+}
+
+function showResult(success, message) {
+  sliceBtn.disabled = false;
+  sliceBtn.textContent = 'Slice';
+  setStatus(success ? 'Done!' : 'Failed', !success);
+  const el = document.getElementById('upload-result');
+  el.className = 'upload-result ' + (success ? 'success' : 'failure');
+  el.textContent = message;
+}
+
+// --- Visibility ---
+
+const observer = new MutationObserver(() => {
+  const visible = document.getElementById('upload-container').style.display !== 'none';
+  if (visible && sceneReady) startAnimate();
+  else if (!visible) stopAnimate();
+});
+observer.observe(document.getElementById('upload-container'), { attributes: true, attributeFilter: ['style'] });
+
+// Expose for onChange hook
+window._updateUploadTransforms = updateTransforms;
 </script>
 </body>
 </html>

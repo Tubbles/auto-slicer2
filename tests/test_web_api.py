@@ -1,17 +1,23 @@
 """Tests for web API pure helpers."""
 
+import io
+import tempfile
 import time
 from pathlib import Path
+from unittest.mock import patch
 
+import numpy as np
 import pytest
+from aiohttp import FormData
 from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer
+from stl import mesh
 
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry
 from auto_slicer.config import Config
 from auto_slicer.web_api import (
     _setting_to_dict, _build_registry_response, _validate_overrides,
-    create_web_app, generate_token, validate_token, cleanup_expired,
-    TOKEN_TTL, TOKEN_MAX_TTL,
+    _cleanup_uploads, create_web_app, generate_token, validate_token,
+    cleanup_expired, TOKEN_TTL, TOKEN_MAX_TTL,
 )
 
 
@@ -669,3 +675,143 @@ class TestEvaluateEndpoint:
         data = await resp.json()
         # computed should NOT appear — it's pinned by config default
         assert "computed" not in data["computed"]
+
+
+# --- Upload endpoint tests ---
+
+
+def _make_stl_bytes() -> bytes:
+    """Create a minimal valid STL file as bytes."""
+    m = mesh.Mesh(np.zeros(1, dtype=mesh.Mesh.dtype))
+    m.vectors[0] = [[0, 0, 0], [10, 0, 0], [0, 10, 0]]
+    with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
+        m.save(f.name)
+        return Path(f.name).read_bytes()
+
+
+class TestUploadEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, self.user_settings, _, _, _ = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_upload_stl(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token))
+        assert resp.status == 200
+        body = await resp.json()
+        assert "file_id" in body
+        assert body["filename"] == "model.stl"
+        # Cleanup
+        file_id = body["file_id"]
+        assert file_id in self.app["uploads"]
+
+    @pytest.mark.asyncio
+    async def test_upload_unsupported_type(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        data = FormData()
+        data.add_field("file", b"hello", filename="readme.txt")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token))
+        assert resp.status == 400
+        body = await resp.json()
+        assert "unsupported" in body["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_upload_requires_auth(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data)
+        assert resp.status == 401
+
+
+class TestUploadModelEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, _, _, _, _ = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_download_model(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        # Upload first
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token))
+        file_id = (await resp.json())["file_id"]
+        # Download
+        resp = await client.get(f"/api/upload/{file_id}/model", headers=_bearer(token))
+        assert resp.status == 200
+        body = await resp.read()
+        assert len(body) > 0
+
+    @pytest.mark.asyncio
+    async def test_download_not_found(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        resp = await client.get("/api/upload/nonexistent/model", headers=_bearer(token))
+        assert resp.status == 404
+
+    @pytest.mark.asyncio
+    async def test_download_wrong_user(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        # Upload as user 42
+        token42 = _add_token(self.app, 42)
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token42))
+        file_id = (await resp.json())["file_id"]
+        # Try to download as user 999
+        token999 = _add_token(self.app, 999)
+        resp = await client.get(f"/api/upload/{file_id}/model", headers=_bearer(token999))
+        assert resp.status == 403
+
+
+class TestUploadDeleteEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup(self, app_with_user):
+        self.app, _, _, _, _ = app_with_user
+
+    @pytest.mark.asyncio
+    async def test_delete_upload(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token))
+        file_id = (await resp.json())["file_id"]
+        # Delete
+        resp = await client.delete(f"/api/upload/{file_id}", headers=_bearer(token))
+        assert resp.status == 200
+        assert file_id not in self.app["uploads"]
+
+    @pytest.mark.asyncio
+    async def test_delete_not_found(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        resp = await client.delete("/api/upload/nonexistent", headers=_bearer(token))
+        assert resp.status == 404
+
+
+class TestCleanupUploads:
+    def test_removes_old_entries(self):
+        uploads = {
+            "old": {"created": time.time() - 3600, "tmpdir": None},
+            "fresh": {"created": time.time(), "tmpdir": None},
+        }
+        _cleanup_uploads(uploads)
+        assert "old" not in uploads
+        assert "fresh" in uploads
+
+    def test_removes_tmpdir(self):
+        with tempfile.TemporaryDirectory() as parent:
+            tmpdir = Path(parent) / "upload"
+            tmpdir.mkdir()
+            (tmpdir / "model.stl").write_text("test")
+            uploads = {"old": {"created": time.time() - 3600, "tmpdir": str(tmpdir)}}
+            _cleanup_uploads(uploads)
+            assert not tmpdir.exists()

@@ -10,6 +10,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
+from .file_utils import find_models_in_zip
 from .slicer import format_duration, slice_file
 from .web_api import generate_token, TOKEN_TTL
 
@@ -190,14 +191,7 @@ async def post_shutdown(app) -> None:
         await runner.cleanup()
 
 
-def _find_models_in_zip(zip_dir: Path) -> list[Path]:
-    """Recursively find STL/3MF files in an extracted ZIP, skipping macOS artifacts."""
-    stls = list(zip_dir.rglob("*.[sS][tT][lL]"))
-    threemfs = list(zip_dir.rglob("*.[3][mM][fF]"))
-    return [
-        p for p in stls + threemfs
-        if "__MACOSX" not in p.parts and not p.name.startswith("._")
-    ]
+_find_models_in_zip = find_models_in_zip
 
 
 def format_stats_line(stats: dict) -> str:

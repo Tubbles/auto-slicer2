@@ -41,6 +41,24 @@ CUSTOM_SETTINGS = [
         minimum_value_warning=1.0, maximum_value_warning=1000.0,
         category="Model", value_expression="scale",
     ),
+    SettingDefinition(
+        key="rotation_x", label="Rotation X", description="X-axis rotation",
+        setting_type="float", default_value=0.0, unit="\u00b0",
+        minimum_value=0.0, maximum_value=360.0,
+        category="Model",
+    ),
+    SettingDefinition(
+        key="rotation_y", label="Rotation Y", description="Y-axis rotation",
+        setting_type="float", default_value=0.0, unit="\u00b0",
+        minimum_value=0.0, maximum_value=360.0,
+        category="Model",
+    ),
+    SettingDefinition(
+        key="rotation_z", label="Rotation Z", description="Z-axis rotation",
+        setting_type="float", default_value=0.0, unit="\u00b0",
+        minimum_value=0.0, maximum_value=360.0,
+        category="Model",
+    ),
 ]
 
 
