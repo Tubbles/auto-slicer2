@@ -1341,7 +1341,8 @@ function getTransformVal(key, fallback) {
   const ov = window.overrides || {};
   const defs = (window.registry && window.registry.defaults) || {};
   if (key in pc && pc[key] !== null) return parseFloat(pc[key]);
-  if (key in ov) return parseFloat(ov[key]);
+  // pendingChanges[key] === null means "revert to default", skip overrides
+  if (!(key in pc) && key in ov) return parseFloat(ov[key]);
   if (key in defs) return parseFloat(defs[key]);
   return fallback;
 }
