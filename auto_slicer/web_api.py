@@ -286,10 +286,11 @@ def _cleanup_uploads(uploads: dict) -> None:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def _prepare_stl(original: Path, tmpdir: Path) -> Path:
+def _prepare_stl(original: Path, tmpdir: Path, out_name: str | None = None) -> Path:
     """Convert 3MF to STL if needed, or return the original STL path."""
     if original.suffix.lower() == ".3mf":
-        stl_path = tmpdir / original.with_suffix(".stl").name
+        stem = Path(out_name).stem if out_name else original.stem
+        stl_path = tmpdir / f"{stem}.stl"
         convert_3mf_to_stl(original, stl_path)
         return stl_path
     return original
@@ -329,7 +330,7 @@ async def handle_upload(request: web.Request) -> web.Response:
             f.write(chunk)
 
     try:
-        stl_path = await asyncio.to_thread(_resolve_upload, file_path, Path(tmpdir))
+        models = await asyncio.to_thread(_resolve_upload, file_path, Path(tmpdir))
     except Exception as e:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return web.json_response({"error": str(e)}, status=400)
@@ -338,7 +339,7 @@ async def handle_upload(request: web.Request) -> web.Response:
     uploads[file_id] = {
         "tmpdir": tmpdir,
         "original_path": file_path,
-        "stl_path": stl_path,
+        "models": models,
         "filename": filename,
         "user_id": user_id,
         "created": time.time(),
@@ -346,11 +347,12 @@ async def handle_upload(request: web.Request) -> web.Response:
         "slice_result": None,
     }
 
-    return web.json_response({"file_id": file_id, "filename": filename})
+    model_names = [m["name"] for m in models]
+    return web.json_response({"file_id": file_id, "filename": filename, "models": model_names})
 
 
-def _resolve_upload(file_path: Path, tmpdir: Path) -> Path:
-    """Resolve an uploaded file to an STL path (extract ZIP / convert 3MF)."""
+def _resolve_upload(file_path: Path, tmpdir: Path) -> list[dict]:
+    """Resolve an uploaded file to a list of {name, stl_path} dicts."""
     ext = file_path.suffix.lower()
     if ext == ".zip":
         extract_dir = tmpdir / "extracted"
@@ -360,13 +362,27 @@ def _resolve_upload(file_path: Path, tmpdir: Path) -> Path:
         models = find_models_in_zip(extract_dir)
         if not models:
             raise ValueError("no model files found in ZIP")
-        model = sorted(models)[0]
-        return _prepare_stl(model, tmpdir)
-    return _prepare_stl(file_path, tmpdir)
+        # Deduplicate names to avoid collisions in tmpdir
+        seen: dict[str, int] = {}
+        result = []
+        for m in sorted(models):
+            name = m.name
+            if name in seen:
+                seen[name] += 1
+                stem = m.stem
+                suffix = m.suffix
+                name = f"{stem}_{seen[name]}{suffix}"
+            else:
+                seen[name] = 0
+            stl = _prepare_stl(m, tmpdir, out_name=name)
+            result.append({"name": m.name, "stl_path": str(stl)})
+        return result
+    stl = _prepare_stl(file_path, tmpdir)
+    return [{"name": file_path.name, "stl_path": str(stl)}]
 
 
 async def handle_upload_model(request: web.Request) -> web.Response:
-    """GET /api/upload/{file_id}/model — return raw STL binary for three.js."""
+    """GET /api/upload/{file_id}/model?index=N — return raw STL binary for three.js."""
     user_id = request["user_id"]
     file_id = request.match_info["file_id"]
     uploads: dict = request.app["uploads"]
@@ -377,7 +393,12 @@ async def handle_upload_model(request: web.Request) -> web.Response:
     if info["user_id"] != user_id:
         return web.json_response({"error": "forbidden"}, status=403)
 
-    stl_path = Path(info["stl_path"])
+    models = info["models"]
+    idx = int(request.query.get("index", 0))
+    if idx < 0 or idx >= len(models):
+        return web.json_response({"error": "invalid model index"}, status=400)
+
+    stl_path = Path(models[idx]["stl_path"])
     if not stl_path.exists():
         return web.json_response({"error": "file expired"}, status=410)
 
@@ -405,31 +426,47 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
         return web.json_response({"error": "slicing already in progress"}, status=409)
 
     overrides = user_settings.get(user_id, {})
-    # Copy the resolved STL (not the original ZIP/3MF) to a fresh temp dir
-    # since slice_file moves files around
+    models = info["models"]
+
+    # Copy all resolved STLs to a fresh temp dir since slice_file moves files
     slice_dir = tempfile.mkdtemp(prefix="slicer_slice_")
-    src = Path(info["stl_path"])
-    dst = Path(slice_dir) / src.name
-    shutil.copy2(src, dst)
+    dst_paths = []
+    for m in models:
+        src = Path(m["stl_path"])
+        dst = Path(slice_dir) / src.name
+        shutil.copy2(src, dst)
+        dst_paths.append(dst)
+
+    # Use a shared archive folder for ZIP uploads (like the Telegram handler)
+    is_zip = Path(info["original_path"]).suffix.lower() == ".zip"
+    archive_folder = None
+    if is_zip and len(models) > 1:
+        archive_folder = config.archive_dir / Path(info["filename"]).stem / time.strftime("%Y%m%d_%H%M%S")
 
     async def _run():
         try:
-            success, message, archive_path, stats = await asyncio.to_thread(
-                slice_file, config, dst, overrides,
-            )
-            info["slice_result"] = {
-                "success": success,
-                "message": message,
-                "archive_path": str(archive_path) if archive_path else None,
-                "stats": stats,
-            }
+            results = []
+            for dst in dst_paths:
+                success, message, archive_path, stats = await asyncio.to_thread(
+                    slice_file, config, dst, overrides,
+                    **({"archive_folder": archive_folder} if archive_folder else {}),
+                )
+                results.append({
+                    "name": dst.name,
+                    "success": success,
+                    "message": message,
+                    "archive_path": str(archive_path) if archive_path else None,
+                    "stats": stats,
+                })
+            info["slice_result"] = {"results": results}
         except Exception as e:
-            info["slice_result"] = {
+            info["slice_result"] = {"results": [{
+                "name": "unknown",
                 "success": False,
                 "message": f"System error: {e}",
                 "archive_path": None,
                 "stats": {},
-            }
+            }]}
         finally:
             shutil.rmtree(slice_dir, ignore_errors=True)
 
@@ -451,7 +488,18 @@ async def handle_upload_status(request: web.Request) -> web.Response:
 
     result = info.get("slice_result")
     if result is not None:
-        return web.json_response({"status": "done", **result})
+        # Flatten single-model results for backwards compatibility
+        results = result["results"]
+        if len(results) == 1:
+            r = results[0]
+            return web.json_response({
+                "status": "done",
+                "success": r["success"],
+                "message": r["message"],
+                "archive_path": r["archive_path"],
+                "stats": r["stats"],
+            })
+        return web.json_response({"status": "done", "results": results})
     if info.get("slice_task") is not None:
         return web.json_response({"status": "slicing"})
     return web.json_response({"status": "pending"})

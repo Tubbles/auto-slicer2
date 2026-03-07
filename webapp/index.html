@@ -391,12 +391,23 @@
     cursor: pointer;
   }
   .upload-clear-btn:active { opacity: 0.7; }
+  .upload-model-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--hint);
+    border-radius: 8px;
+    background: var(--secondary-bg);
+    color: var(--text);
+    font-size: 14px;
+    margin: 8px 0 0;
+  }
 
   .upload-result {
     padding: 10px 12px;
     border-radius: 8px;
     font-size: 13px;
     margin: 8px 0;
+    white-space: pre-line;
   }
   .upload-result.success {
     background: color-mix(in srgb, #4caf50 12%, var(--secondary-bg));
@@ -430,6 +441,7 @@
     <input type="file" id="upload-input" accept=".stl,.3mf,.zip">
     <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / ZIP</div>
   </div>
+  <select class="upload-model-select" id="upload-model-select" style="display:none"></select>
   <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
@@ -1414,6 +1426,11 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files.length > 0) handleFile(fileInput.files[0]);
 });
 
+let uploadModels = [];
+
+const modelSelect = document.getElementById('upload-model-select');
+modelSelect.addEventListener('change', () => loadModelByIndex(parseInt(modelSelect.value)));
+
 async function handleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (!['stl', '3mf', 'zip'].includes(ext)) {
@@ -1444,27 +1461,42 @@ async function handleFile(file) {
     }
     const data = await r.json();
     uploadFileId = data.file_id;
+    uploadModels = data.models || [];
 
-    // Fetch the STL binary for three.js
-    const modelResp = await fetch(API_BASE + `/api/upload/${uploadFileId}/model`, {
-      headers: { 'Authorization': 'Bearer ' + TOKEN },
-    });
-    if (!modelResp.ok) {
-      setStatus('Failed to load model for preview', true);
-      return;
+    // Show model selector if ZIP with multiple models
+    if (uploadModels.length > 1) {
+      modelSelect.innerHTML = uploadModels.map((name, i) =>
+        `<option value="${i}">${name}</option>`
+      ).join('');
+      modelSelect.style.display = '';
+    } else {
+      modelSelect.style.display = 'none';
     }
-    const buf = await modelResp.arrayBuffer();
 
-    document.getElementById('upload-viewport').style.display = '';
-    document.getElementById('upload-dims').style.display = '';
-    document.getElementById('upload-actions').style.display = '';
-    document.getElementById('upload-slice-btn').disabled = false;
-
-    loadSTL(buf);
-    setStatus(`Uploaded ${data.filename}`);
+    await loadModelByIndex(0);
+    setStatus(`Uploaded ${data.filename}` + (uploadModels.length > 1 ? ` (${uploadModels.length} models)` : ''));
   } catch (e) {
     setStatus('Upload error: ' + e.message, true);
   }
+}
+
+async function loadModelByIndex(index) {
+  if (!uploadFileId) return;
+  const modelResp = await fetch(API_BASE + `/api/upload/${uploadFileId}/model?index=${index}`, {
+    headers: { 'Authorization': 'Bearer ' + TOKEN },
+  });
+  if (!modelResp.ok) {
+    setStatus('Failed to load model for preview', true);
+    return;
+  }
+  const buf = await modelResp.arrayBuffer();
+
+  document.getElementById('upload-viewport').style.display = '';
+  document.getElementById('upload-dims').style.display = '';
+  document.getElementById('upload-actions').style.display = '';
+  document.getElementById('upload-slice-btn').disabled = false;
+
+  loadSTL(buf);
 }
 
 // --- Slicing ---
@@ -1512,19 +1544,31 @@ async function pollStatus() {
     }
 
     if (data.status === 'done') {
-      if (data.success) {
+      // Multi-model results (ZIP)
+      if (data.results) {
+        const ok = data.results.filter(r => r.success).length;
+        const total = data.results.length;
+        const lines = [`${ok}/${total} sliced.`];
+        let totalTime = 0, totalFilament = 0;
+        for (const r of data.results) {
+          if (r.success && r.stats && r.stats.time_seconds != null) {
+            lines.push(`${r.name} — ${formatDuration(r.stats.time_seconds)}, ${r.stats.filament_meters}m`);
+            totalTime += r.stats.time_seconds;
+            totalFilament += r.stats.filament_meters;
+          } else if (!r.success) {
+            lines.push(`Failed: ${r.name} — ${r.message}`);
+          }
+        }
+        if (ok > 1) lines.push(`\nTotal: ${formatDuration(totalTime)}, ${Math.round(totalFilament * 100) / 100}m`);
+        if (data.results[0]?.archive_path) lines.push(`Archived to: ${data.results[0].archive_path}`);
+        showResult(ok === total, lines.join('\n'));
+      }
+      // Single-model result
+      else if (data.success) {
         let msg = 'Slicing completed!';
         if (data.archive_path) msg += `\nArchived to: ${data.archive_path}`;
         if (data.stats && data.stats.time_seconds != null) {
-          const t = data.stats.time_seconds;
-          const h = Math.floor(t / 3600);
-          const m = Math.floor((t % 3600) / 60);
-          const s = t % 60;
-          const parts = [];
-          if (h) parts.push(h + 'h');
-          if (h || m) parts.push(m + 'm');
-          parts.push(s + 's');
-          msg += `\nTime: ${parts.join(' ')} | Filament: ${data.stats.filament_meters}m`;
+          msg += `\nTime: ${formatDuration(data.stats.time_seconds)} | Filament: ${data.stats.filament_meters}m`;
         }
         showResult(true, msg);
       } else {
@@ -1534,6 +1578,17 @@ async function pollStatus() {
   } catch (e) {
     showResult(false, 'Status check failed: ' + e.message);
   }
+}
+
+function formatDuration(t) {
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  const parts = [];
+  if (h) parts.push(h + 'h');
+  if (h || m) parts.push(m + 'm');
+  parts.push(s + 's');
+  return parts.join(' ');
 }
 
 function showResult(success, message) {
@@ -1572,6 +1627,8 @@ async function clearUpload() {
   if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
 
+  uploadModels = [];
+  document.getElementById('upload-model-select').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';
   document.getElementById('upload-dims').style.display = 'none';
   document.getElementById('upload-actions').style.display = 'none';
