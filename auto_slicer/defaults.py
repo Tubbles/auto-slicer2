@@ -123,6 +123,11 @@ SETTINGS: dict[str, dict] = {
     "cool_fan_speed_0": {
         "default_value": "100",
     },
+    # CuraEngine errors without an explicit value for this setting
+    "support_z_seam_away_from_model": {
+        "default_value": "true",
+        "forced": True,
+    },
     # Ensure roofing/flooring layers are always passed to CuraEngine
     "roofing_layer_count": {
         "default_value": "0",
