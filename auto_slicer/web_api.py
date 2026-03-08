@@ -449,7 +449,7 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         bed_d = float(active.get("machine_depth", "235"))
         beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
     except Exception as exc:
-        print(f"Pack error: {exc}")
+        print(f"Pack error: {exc}", flush=True)
         return web.json_response({"error": str(exc)}, status=500)
 
     # Map paths back to model indices
@@ -699,11 +699,11 @@ async def logging_middleware(request: web.Request, handler) -> web.Response:
     try:
         response = await handler(request)
         elapsed = (time.time() - start) * 1000
-        print(f"[API] {request.method} {request.path} → {response.status} ({elapsed:.0f}ms)")
+        print(f"[API] {request.method} {request.path} → {response.status} ({elapsed:.0f}ms)", flush=True)
         return response
     except Exception as e:
         elapsed = (time.time() - start) * 1000
-        print(f"[API] {request.method} {request.path} → ERROR: {e} ({elapsed:.0f}ms)")
+        print(f"[API] {request.method} {request.path} → ERROR: {e} ({elapsed:.0f}ms)", flush=True)
         raise
 
 
