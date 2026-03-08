@@ -1596,6 +1596,12 @@ async function loadBedPreview(bedIndex) {
       opacity: 0.7,
       side: THREE.DoubleSide,
     });
+    // Center geometry at origin (STL vertices may start at arbitrary positions)
+    geometry.computeBoundingBox();
+    const geoCenter = new THREE.Vector3();
+    geometry.boundingBox.getCenter(geoCenter);
+    geometry.translate(-geoCenter.x, -geoCenter.y, -geometry.boundingBox.min.z);
+
     const mesh = new THREE.Mesh(geometry, material);
 
     // Apply transforms (scale + rotation)
