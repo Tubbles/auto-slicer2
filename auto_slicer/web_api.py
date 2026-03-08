@@ -410,6 +410,62 @@ async def handle_upload_model(request: web.Request) -> web.Response:
     )
 
 
+async def handle_upload_pack(request: web.Request) -> web.Response:
+    """POST /api/upload/{file_id}/pack — compute bed packing layout for preview."""
+    user_id = request["user_id"]
+    file_id = request.match_info["file_id"]
+    config: Config = request.app["config"]
+    uploads: dict = request.app["uploads"]
+    user_settings: dict = request.app["user_settings"]
+
+    info = uploads.get(file_id)
+    if info is None:
+        return web.json_response({"error": "upload not found"}, status=404)
+    if info["user_id"] != user_id:
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    overrides = user_settings.get(user_id, {})
+    all_models = info["models"]
+
+    try:
+        body = await request.json() if request.content_length else {}
+    except Exception:
+        body = {}
+    indices = body.get("indices")
+    if indices is not None:
+        if not all(isinstance(i, int) and 0 <= i < len(all_models) for i in indices):
+            return web.json_response({"error": "invalid indices"}, status=400)
+    else:
+        indices = list(range(len(all_models)))
+
+    if not indices:
+        return web.json_response({"beds": []})
+
+    stl_paths = [Path(all_models[i]["stl_path"]) for i in indices]
+    active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+    bed_w = float(active.get("machine_width", "235"))
+    bed_d = float(active.get("machine_depth", "235"))
+
+    beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
+
+    # Map paths back to model indices
+    path_to_idx = {str(Path(all_models[i]["stl_path"])): i for i in indices}
+    beds = []
+    for bed_models in beds_packed:
+        bed = []
+        for path, ox, oy in bed_models:
+            idx = path_to_idx.get(str(path))
+            bed.append({
+                "index": idx,
+                "name": all_models[idx]["name"] if idx is not None else path.name,
+                "offset_x": round(ox, 2),
+                "offset_y": round(oy, 2),
+            })
+        beds.append(bed)
+
+    return web.json_response({"beds": beds, "bed_width": bed_w, "bed_depth": bed_d})
+
+
 async def handle_upload_slice(request: web.Request) -> web.Response:
     """POST /api/upload/{file_id}/slice — start slicing in background."""
     user_id = request["user_id"]
@@ -680,6 +736,7 @@ def create_web_app(
     app.router.add_post("/api/evaluate", handle_evaluate)
     app.router.add_post("/api/upload", handle_upload)
     app.router.add_get("/api/upload/{file_id}/model", handle_upload_model)
+    app.router.add_post("/api/upload/{file_id}/pack", handle_upload_pack)
     app.router.add_post("/api/upload/{file_id}/slice", handle_upload_slice)
     app.router.add_get("/api/upload/{file_id}/status", handle_upload_status)
     app.router.add_delete("/api/upload/{file_id}", handle_upload_delete)

@@ -442,6 +442,42 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .upload-model-bed-header {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--hint);
+    background: color-mix(in srgb, var(--secondary-bg) 50%, transparent);
+    cursor: pointer;
+    border-bottom: 1px solid color-mix(in srgb, var(--hint) 30%, transparent);
+  }
+  .upload-model-bed-header.active {
+    color: var(--link);
+    background: color-mix(in srgb, var(--link) 8%, transparent);
+  }
+  .upload-model-bed-header:active { opacity: 0.7; }
+  .upload-bed-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 8px 0 0;
+    font-size: 14px;
+  }
+  .upload-bed-nav button {
+    background: var(--secondary-bg);
+    border: 1px solid var(--hint);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 12px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .upload-bed-nav button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .upload-bed-nav button:active:not(:disabled) { opacity: 0.7; }
 
   .upload-result {
     padding: 10px 12px;
@@ -483,6 +519,11 @@
     <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / ZIP</div>
   </div>
   <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
+  <div class="upload-bed-nav" id="upload-bed-nav" style="display:none">
+    <button id="bed-prev">&lt;</button>
+    <span id="bed-label">Bed 1/1</span>
+    <button id="bed-next">&gt;</button>
+  </div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
     <button class="upload-clear-btn" id="upload-clear-btn">Clear</button>
@@ -918,7 +959,7 @@ function buildResetBtn(key) {
 
 // --- Events ---
 
-const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z']);
+const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z', 'batch_models']);
 
 function onChange(key, value) {
   pendingChanges[key] = value;
@@ -1240,7 +1281,8 @@ const setStatus = (...a) => window.setStatus(...a);
 // --- Three.js upload scene ---
 
 let scene, camera, renderer, controls;
-let modelMesh = null;
+let modelMeshes = [];  // array of THREE.Mesh for batch mode
+let modelMesh = null;  // single mesh for individual mode
 let originalGeometry = null;
 let originalBoxHelper = null;
 let transformedBoxHelper = null;
@@ -1248,6 +1290,21 @@ let bedBox = null;
 let uploadFileId = null;
 let sceneReady = false;
 let animating = false;
+
+// Batch state
+let packedBeds = null;  // array of beds, each bed is [{index, name, offset_x, offset_y}, ...]
+let activeBedIndex = 0;
+let stlCache = {};  // index -> ArrayBuffer, avoid re-fetching
+
+function isBatchMode() {
+  const pc = window.pendingChanges || {};
+  const ov = window.overrides || {};
+  const defs = (window.registry && window.registry.defaults) || {};
+  const raw = (pc['batch_models'] !== undefined && pc['batch_models'] !== null) ? pc['batch_models']
+    : (ov['batch_models'] !== undefined ? ov['batch_models']
+    : (defs['batch_models'] !== undefined ? defs['batch_models'] : false));
+  return raw === true || raw === 'true' || raw === 'True';
+}
 
 function initScene() {
   if (sceneReady) return;
@@ -1450,6 +1507,177 @@ function updateDimsDisplay() {
   dimsEl.innerHTML = html;
 }
 
+// --- Batch preview helpers ---
+
+function clearSceneMeshes() {
+  if (modelMesh) {
+    scene.remove(modelMesh);
+    modelMesh.geometry.dispose();
+    modelMesh.material.dispose();
+    modelMesh = null;
+  }
+  for (const m of modelMeshes) {
+    scene.remove(m);
+    m.geometry.dispose();
+    m.material.dispose();
+  }
+  modelMeshes = [];
+  originalGeometry = null;
+  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
+  if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
+  if (bedBox) { scene.remove(bedBox); bedBox = null; }
+}
+
+async function fetchSTL(index) {
+  if (stlCache[index]) return stlCache[index];
+  const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/model?index=${index}`, {
+    headers: { 'Authorization': 'Bearer ' + TOKEN },
+  });
+  if (!r.ok) throw new Error('Failed to fetch model ' + index);
+  const buf = await r.arrayBuffer();
+  stlCache[index] = buf;
+  return buf;
+}
+
+async function fetchPackLayout() {
+  if (!uploadFileId) return null;
+  const indices = [...checkedModels].sort();
+  if (indices.length === 0) return null;
+  try {
+    const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/pack`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + TOKEN,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ indices }),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) { return null; }
+}
+
+async function loadBedPreview(bedIndex) {
+  if (!packedBeds || bedIndex >= packedBeds.length) return;
+  initScene();
+  clearSceneMeshes();
+
+  const bed = packedBeds[bedIndex];
+  const loader = new STLLoader();
+  const colors = [0x4488cc, 0xcc8844, 0x44cc88, 0x8844cc, 0xcc4488, 0x88cc44];
+  const combined = new THREE.Box3();
+
+  for (let i = 0; i < bed.length; i++) {
+    const item = bed[i];
+    const buf = await fetchSTL(item.index);
+    const geometry = loader.parse(buf.slice(0));  // slice to avoid detached buffer issues
+
+    const material = new THREE.MeshPhongMaterial({
+      color: colors[i % colors.length],
+      transparent: true,
+      opacity: 0.7,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    // Apply transforms (scale + rotation)
+    const masterScale = getTransformVal('scale', 100);
+    const sx = getTransformVal('scale_x', masterScale);
+    const sy = getTransformVal('scale_y', masterScale);
+    const sz = getTransformVal('scale_z', masterScale);
+    const rx = getTransformVal('rotation_x', 0);
+    const ry = getTransformVal('rotation_y', 0);
+    const rz = getTransformVal('rotation_z', 0);
+    mesh.scale.set(sx / 100, sy / 100, sz / 100);
+    mesh.rotation.set(rx * Math.PI / 180, ry * Math.PI / 180, rz * Math.PI / 180, 'ZYX');
+
+    // Position at packed offset (offset is relative to bed center, which is scene origin)
+    mesh.position.set(item.offset_x, item.offset_y, 0);
+
+    scene.add(mesh);
+    modelMeshes.push(mesh);
+
+    const meshBox = new THREE.Box3().setFromObject(mesh);
+    combined.union(meshBox);
+  }
+
+  // Add bed outline
+  addBedOutline();
+
+  // Add combined bounding box (orange)
+  transformedBoxHelper = new THREE.Box3Helper(combined, 0xee8833);
+  scene.add(transformedBoxHelper);
+
+  // Fit camera to combined view
+  const center = new THREE.Vector3();
+  combined.getCenter(center);
+  const size = new THREE.Vector3();
+  combined.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z, 50);
+  camera.position.set(center.x + maxDim * 1.5, center.y - maxDim * 1.2, center.z + maxDim);
+  controls.target.copy(center);
+  controls.update();
+
+  // Update bed nav UI
+  updateBedNav();
+  updateBatchDimsDisplay(bed);
+}
+
+function updateBedNav() {
+  const nav = document.getElementById('upload-bed-nav');
+  if (!packedBeds || packedBeds.length <= 1) {
+    nav.style.display = 'none';
+    return;
+  }
+  nav.style.display = '';
+  document.getElementById('bed-label').textContent = `Bed ${activeBedIndex + 1}/${packedBeds.length}`;
+  document.getElementById('bed-prev').disabled = activeBedIndex === 0;
+  document.getElementById('bed-next').disabled = activeBedIndex >= packedBeds.length - 1;
+}
+
+function updateBatchDimsDisplay(bed) {
+  const dimsEl = document.getElementById('upload-dims');
+  const bedDims = getBedDims();
+  const fmt = v => v.toFixed(1);
+  const names = bed.map(m => m.name).join(', ');
+  let html = `<div class="upload-dims-bed" style="grid-column:1/4">${bed.length} model${bed.length > 1 ? 's' : ''}: ${names}</div>`;
+  if (bedDims) {
+    html += `<div class="upload-dims-bed">Bed: ${fmt(bedDims.width)} × ${fmt(bedDims.depth)} × ${fmt(bedDims.height)} mm</div>`;
+  }
+  dimsEl.innerHTML = html;
+}
+
+async function enterBatchMode() {
+  if (!uploadFileId || checkedModels.size === 0) return;
+  setStatus('Computing bed layout...');
+  const result = await fetchPackLayout();
+  if (!result || !result.beds || result.beds.length === 0) {
+    setStatus('Failed to compute bed layout', true);
+    return;
+  }
+  packedBeds = result.beds;
+  activeBedIndex = 0;
+  await loadBedPreview(0);
+  document.getElementById('upload-viewport').style.display = '';
+  document.getElementById('upload-dims').style.display = '';
+  document.getElementById('upload-actions').style.display = '';
+  // In batch mode, model list shows which models are on which bed
+  renderModelList();
+  setStatus(`Packed ${checkedModels.size} model${checkedModels.size > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`);
+}
+
+function exitBatchMode() {
+  packedBeds = null;
+  activeBedIndex = 0;
+  stlCache = {};
+  document.getElementById('upload-bed-nav').style.display = 'none';
+  // Reload current individual model
+  if (uploadFileId && uploadModels.length > 0) {
+    loadModelByIndex(activeModelIndex);
+  }
+  renderModelList();
+}
+
 // --- File upload ---
 
 const zone = document.getElementById('upload-zone');
@@ -1512,7 +1740,12 @@ async function handleFile(file) {
       document.getElementById('upload-model-list').style.display = 'none';
     }
 
-    await loadModelByIndex(0);
+    // Batch mode: compute packing and show bed preview
+    if (isBatchMode() && uploadModels.length > 1) {
+      await enterBatchMode();
+    } else {
+      await loadModelByIndex(0);
+    }
     updateSliceButton();
     setStatus(`Uploaded ${data.filename}` + (uploadModels.length > 1 ? ` (${uploadModels.length} models)` : ''));
   } catch (e) {
@@ -1527,14 +1760,32 @@ function renderModelList() {
     <span>${checkedModels.size}/${uploadModels.length} selected</span>
     <button id="upload-toggle-all">${allChecked ? 'Deselect all' : 'Select all'}</button>
   </div>`;
-  for (let i = 0; i < uploadModels.length; i++) {
-    const checked = checkedModels.has(i) ? 'checked' : '';
-    const active = i === activeModelIndex ? ' active' : '';
-    html += `<div class="upload-model-item${active}" data-index="${i}">
-      <input type="checkbox" ${checked} data-cb-index="${i}">
-      <span class="model-name">${uploadModels[i]}</span>
-    </div>`;
+
+  if (packedBeds) {
+    // Batch mode: group models by bed
+    for (let b = 0; b < packedBeds.length; b++) {
+      const bed = packedBeds[b];
+      const active = b === activeBedIndex ? ' active' : '';
+      html += `<div class="upload-model-bed-header${active}" data-bed="${b}">Bed ${b + 1} (${bed.length} model${bed.length > 1 ? 's' : ''})</div>`;
+      for (const item of bed) {
+        html += `<div class="upload-model-item" data-index="${item.index}" data-bed="${b}">
+          <input type="checkbox" ${checkedModels.has(item.index) ? 'checked' : ''} data-cb-index="${item.index}">
+          <span class="model-name">${item.name}</span>
+        </div>`;
+      }
+    }
+  } else {
+    // Individual mode: flat list
+    for (let i = 0; i < uploadModels.length; i++) {
+      const checked = checkedModels.has(i) ? 'checked' : '';
+      const active = i === activeModelIndex ? ' active' : '';
+      html += `<div class="upload-model-item${active}" data-index="${i}">
+        <input type="checkbox" ${checked} data-cb-index="${i}">
+        <span class="model-name">${uploadModels[i]}</span>
+      </div>`;
+    }
   }
+
   listEl.innerHTML = html;
   listEl.style.display = '';
 
@@ -1548,7 +1799,17 @@ function renderModelList() {
     }
     renderModelList();
     updateSliceButton();
+    if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
   });
+
+  // Bed header clicks: switch to that bed's preview
+  for (const header of listEl.querySelectorAll('.upload-model-bed-header')) {
+    header.addEventListener('click', () => {
+      activeBedIndex = parseInt(header.dataset.bed);
+      loadBedPreview(activeBedIndex);
+      renderModelList();
+    });
+  }
 
   // Row clicks: checkbox area toggles check, name area switches preview
   for (const item of listEl.querySelectorAll('.upload-model-item')) {
@@ -1560,10 +1821,22 @@ function renderModelList() {
       else checkedModels.delete(idx);
       renderModelList();
       updateSliceButton();
+      // Recompute packing when selection changes in batch mode
+      if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
     });
     item.addEventListener('click', (e) => {
       if (e.target.tagName === 'INPUT') return;
-      loadModelByIndex(idx);
+      if (packedBeds) {
+        // In batch mode, tap a model name to jump to its bed
+        const bedIdx = parseInt(item.dataset.bed);
+        if (!isNaN(bedIdx) && bedIdx !== activeBedIndex) {
+          activeBedIndex = bedIdx;
+          loadBedPreview(activeBedIndex);
+          renderModelList();
+        }
+      } else {
+        loadModelByIndex(idx);
+      }
     });
   }
 }
@@ -1723,21 +1996,16 @@ async function clearUpload() {
   }
   uploadFileId = null;
 
-  if (modelMesh) {
-    scene.remove(modelMesh);
-    modelMesh.geometry.dispose();
-    modelMesh.material.dispose();
-    modelMesh = null;
-  }
-  originalGeometry = null;
-  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
-  if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
-  if (bedBox) { scene.remove(bedBox); bedBox = null; }
+  if (sceneReady) clearSceneMeshes();
 
   uploadModels = [];
   checkedModels.clear();
   activeModelIndex = 0;
+  packedBeds = null;
+  activeBedIndex = 0;
+  stlCache = {};
   document.getElementById('upload-model-list').style.display = 'none';
+  document.getElementById('upload-bed-nav').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';
   document.getElementById('upload-dims').style.display = 'none';
   document.getElementById('upload-actions').style.display = 'none';
@@ -1761,8 +2029,39 @@ const observer = new MutationObserver(() => {
 });
 observer.observe(document.getElementById('upload-container'), { attributes: true, attributeFilter: ['style'] });
 
-// Expose for onChange hook
-window._updateUploadTransforms = updateTransforms;
+// --- Bed navigation ---
+
+document.getElementById('bed-prev').addEventListener('click', () => {
+  if (activeBedIndex > 0) {
+    activeBedIndex--;
+    loadBedPreview(activeBedIndex);
+    if (uploadModels.length > 1) renderModelList();
+  }
+});
+document.getElementById('bed-next').addEventListener('click', () => {
+  if (packedBeds && activeBedIndex < packedBeds.length - 1) {
+    activeBedIndex++;
+    loadBedPreview(activeBedIndex);
+    if (uploadModels.length > 1) renderModelList();
+  }
+});
+
+// Expose for onChange hook — handle batch mode toggle and transform changes
+window._updateUploadTransforms = function() {
+  if (!uploadFileId) return;
+  const batch = isBatchMode() && uploadModels.length > 1;
+  const wasBatch = packedBeds !== null;
+  if (batch && !wasBatch) {
+    enterBatchMode();
+  } else if (!batch && wasBatch) {
+    exitBatchMode();
+  } else if (batch) {
+    // Transforms changed in batch mode — recompute packing (scale affects model footprint)
+    enterBatchMode();
+  } else {
+    updateTransforms();
+  }
+};
 </script>
 </body>
 </html>

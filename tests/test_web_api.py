@@ -815,3 +815,56 @@ class TestCleanupUploads:
             uploads = {"old": {"created": time.time() - 3600, "tmpdir": str(tmpdir)}}
             _cleanup_uploads(uploads)
             assert not tmpdir.exists()
+
+
+class TestUploadPackEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        settings = {
+            "machine_width": _make_defn(key="machine_width", default_value=235.0),
+            "machine_depth": _make_defn(key="machine_depth", default_value=235.0),
+            "adhesion_type": _make_defn(
+                key="adhesion_type", setting_type="enum", default_value="skirt",
+                options={"none": "None", "skirt": "Skirt", "brim": "Brim", "raft": "Raft"},
+            ),
+            "skirt_distance": _make_defn(key="skirt_distance", default_value=3.0),
+        }
+        config = _make_config(settings, defaults={
+            "machine_width": "235", "machine_depth": "235",
+            "adhesion_type": "skirt", "skirt_distance": "3",
+        })
+        self.app = create_web_app(config, {}, tokens={})
+
+    @pytest.mark.asyncio
+    async def test_pack_single_model(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        data = FormData()
+        data.add_field("file", _make_stl_bytes(), filename="model.stl")
+        resp = await client.post("/api/upload", data=data, headers=_bearer(token))
+        file_id = (await resp.json())["file_id"]
+        # Pack
+        resp = await client.post(
+            f"/api/upload/{file_id}/pack",
+            json={},
+            headers=_bearer(token),
+        )
+        assert resp.status == 200
+        body = await resp.json()
+        assert len(body["beds"]) == 1
+        assert len(body["beds"][0]) == 1
+        assert body["bed_width"] == 235.0
+        assert body["bed_depth"] == 235.0
+
+    @pytest.mark.asyncio
+    async def test_pack_not_found(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        token = _add_token(self.app, 42)
+        resp = await client.post("/api/upload/nonexistent/pack", json={}, headers=_bearer(token))
+        assert resp.status == 404
+
+    @pytest.mark.asyncio
+    async def test_pack_requires_auth(self, aiohttp_client):
+        client = await aiohttp_client(self.app)
+        resp = await client.post("/api/upload/foo/pack", json={})
+        assert resp.status == 401
