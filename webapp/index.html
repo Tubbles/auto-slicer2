@@ -391,15 +391,56 @@
     cursor: pointer;
   }
   .upload-clear-btn:active { opacity: 0.7; }
-  .upload-model-select {
-    width: 100%;
-    padding: 8px 12px;
+  .upload-model-list {
+    max-height: 160px;
+    overflow-y: auto;
     border: 1px solid var(--hint);
     border-radius: 8px;
-    background: var(--secondary-bg);
-    color: var(--text);
-    font-size: 14px;
     margin: 8px 0 0;
+  }
+  .upload-model-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--hint);
+    font-size: 12px;
+    color: var(--hint);
+  }
+  .upload-model-list-header button {
+    background: none;
+    border: none;
+    color: var(--link);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .upload-model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid color-mix(in srgb, var(--hint) 30%, transparent);
+  }
+  .upload-model-item:last-child { border-bottom: none; }
+  .upload-model-item:active { opacity: 0.7; }
+  .upload-model-item.active {
+    background: color-mix(in srgb, var(--link) 10%, transparent);
+    font-weight: 600;
+  }
+  .upload-model-item input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--btn);
+  }
+  .upload-model-item .model-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .upload-result {
@@ -441,13 +482,13 @@
     <input type="file" id="upload-input" accept=".stl,.3mf,.zip">
     <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / ZIP</div>
   </div>
-  <select class="upload-model-select" id="upload-model-select" style="display:none"></select>
   <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
     <button class="upload-clear-btn" id="upload-clear-btn">Clear</button>
     <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
   </div>
+  <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
   <div id="upload-result"></div>
 </div>
 
@@ -1428,9 +1469,8 @@ fileInput.addEventListener('change', () => {
 });
 
 let uploadModels = [];
-
-const modelSelect = document.getElementById('upload-model-select');
-modelSelect.addEventListener('change', () => loadModelByIndex(parseInt(modelSelect.value)));
+let checkedModels = new Set();  // indices of models selected for slicing
+let activeModelIndex = 0;
 
 async function handleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
@@ -1463,26 +1503,85 @@ async function handleFile(file) {
     const data = await r.json();
     uploadFileId = data.file_id;
     uploadModels = data.models || [];
+    checkedModels = new Set(uploadModels.map((_, i) => i));
 
-    // Show model selector if ZIP with multiple models
+    // Show model list if ZIP with multiple models
     if (uploadModels.length > 1) {
-      modelSelect.innerHTML = uploadModels.map((name, i) =>
-        `<option value="${i}">${name}</option>`
-      ).join('');
-      modelSelect.style.display = '';
+      renderModelList();
     } else {
-      modelSelect.style.display = 'none';
+      document.getElementById('upload-model-list').style.display = 'none';
     }
 
     await loadModelByIndex(0);
+    updateSliceButton();
     setStatus(`Uploaded ${data.filename}` + (uploadModels.length > 1 ? ` (${uploadModels.length} models)` : ''));
   } catch (e) {
     setStatus('Upload error: ' + e.message, true);
   }
 }
 
+function renderModelList() {
+  const listEl = document.getElementById('upload-model-list');
+  const allChecked = checkedModels.size === uploadModels.length;
+  let html = `<div class="upload-model-list-header">
+    <span>${checkedModels.size}/${uploadModels.length} selected</span>
+    <button id="upload-toggle-all">${allChecked ? 'Deselect all' : 'Select all'}</button>
+  </div>`;
+  for (let i = 0; i < uploadModels.length; i++) {
+    const checked = checkedModels.has(i) ? 'checked' : '';
+    const active = i === activeModelIndex ? ' active' : '';
+    html += `<div class="upload-model-item${active}" data-index="${i}">
+      <input type="checkbox" ${checked} data-cb-index="${i}">
+      <span class="model-name">${uploadModels[i]}</span>
+    </div>`;
+  }
+  listEl.innerHTML = html;
+  listEl.style.display = '';
+
+  // Toggle all
+  document.getElementById('upload-toggle-all').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (checkedModels.size === uploadModels.length) {
+      checkedModels.clear();
+    } else {
+      checkedModels = new Set(uploadModels.map((_, i) => i));
+    }
+    renderModelList();
+    updateSliceButton();
+  });
+
+  // Row clicks: checkbox area toggles check, name area switches preview
+  for (const item of listEl.querySelectorAll('.upload-model-item')) {
+    const idx = parseInt(item.dataset.index);
+    const cb = item.querySelector('input[type="checkbox"]');
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (cb.checked) checkedModels.add(idx);
+      else checkedModels.delete(idx);
+      renderModelList();
+      updateSliceButton();
+    });
+    item.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      loadModelByIndex(idx);
+    });
+  }
+}
+
+function updateSliceButton() {
+  const btn = document.getElementById('upload-slice-btn');
+  if (uploadModels.length > 1) {
+    btn.textContent = `Slice (${checkedModels.size}/${uploadModels.length})`;
+    btn.disabled = checkedModels.size === 0;
+  } else {
+    btn.textContent = 'Slice';
+    btn.disabled = false;
+  }
+}
+
 async function loadModelByIndex(index) {
   if (!uploadFileId) return;
+  activeModelIndex = index;
   const modelResp = await fetch(API_BASE + `/api/upload/${uploadFileId}/model?index=${index}`, {
     headers: { 'Authorization': 'Bearer ' + TOKEN },
   });
@@ -1495,9 +1594,11 @@ async function loadModelByIndex(index) {
   document.getElementById('upload-viewport').style.display = '';
   document.getElementById('upload-dims').style.display = '';
   document.getElementById('upload-actions').style.display = '';
-  document.getElementById('upload-slice-btn').disabled = false;
 
   loadSTL(buf);
+
+  // Update active highlight in model list
+  if (uploadModels.length > 1) renderModelList();
 }
 
 // --- Slicing ---
@@ -1507,15 +1608,21 @@ sliceBtn.addEventListener('click', startSlice);
 
 async function startSlice() {
   if (!uploadFileId) return;
+  if (uploadModels.length > 1 && checkedModels.size === 0) return;
   sliceBtn.disabled = true;
   sliceBtn.textContent = 'Slicing...';
   document.getElementById('upload-result').innerHTML = '';
   setStatus('Slicing...');
 
+  const body = uploadModels.length > 1 ? {indices: [...checkedModels].sort()} : {};
   try {
     const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/slice`, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + TOKEN },
+      headers: {
+        'Authorization': 'Bearer ' + TOKEN,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
     });
     if (handleAuthError(r)) return;
     if (!r.ok) {
@@ -1593,8 +1700,7 @@ function formatDuration(t) {
 }
 
 function showResult(success, message) {
-  sliceBtn.disabled = false;
-  sliceBtn.textContent = 'Slice';
+  updateSliceButton();
   setStatus(success ? 'Done!' : 'Failed', !success);
   const el = document.getElementById('upload-result');
   el.className = 'upload-result ' + (success ? 'success' : 'failure');
@@ -1629,7 +1735,9 @@ async function clearUpload() {
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
 
   uploadModels = [];
-  document.getElementById('upload-model-select').style.display = 'none';
+  checkedModels.clear();
+  activeModelIndex = 0;
+  document.getElementById('upload-model-list').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';
   document.getElementById('upload-dims').style.display = 'none';
   document.getElementById('upload-actions').style.display = 'none';

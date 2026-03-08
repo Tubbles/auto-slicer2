@@ -422,13 +422,31 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
         return web.json_response({"error": "upload not found"}, status=404)
     if info["user_id"] != user_id:
         return web.json_response({"error": "forbidden"}, status=403)
-    if info["slice_task"] is not None:
+    task = info.get("slice_task")
+    if task is not None and not task.done():
         return web.json_response({"error": "slicing already in progress"}, status=409)
+    info["slice_result"] = None
 
     overrides = user_settings.get(user_id, {})
-    models = info["models"]
+    all_models = info["models"]
 
-    # Copy all resolved STLs to a fresh temp dir since slice_file moves files
+    # Parse optional indices to slice a subset
+    try:
+        body = await request.json() if request.content_length else {}
+    except Exception:
+        body = {}
+    indices = body.get("indices")
+    if indices is not None:
+        if not all(isinstance(i, int) and 0 <= i < len(all_models) for i in indices):
+            return web.json_response({"error": "invalid indices"}, status=400)
+        models = [all_models[i] for i in indices]
+    else:
+        models = all_models
+
+    if not models:
+        return web.json_response({"error": "no models selected"}, status=400)
+
+    # Copy selected STLs to a fresh temp dir since slice_file moves files
     slice_dir = tempfile.mkdtemp(prefix="slicer_slice_")
     dst_paths = []
     for m in models:
@@ -437,10 +455,9 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
         shutil.copy2(src, dst)
         dst_paths.append(dst)
 
-    # Use a shared archive folder for ZIP uploads (like the Telegram handler)
-    is_zip = Path(info["original_path"]).suffix.lower() == ".zip"
+    # Use a shared archive folder for multi-model slicing
     archive_folder = None
-    if is_zip and len(models) > 1:
+    if len(models) > 1:
         archive_folder = config.archive_dir / Path(info["filename"]).stem / time.strftime("%Y%m%d_%H%M%S")
 
     async def _run():
