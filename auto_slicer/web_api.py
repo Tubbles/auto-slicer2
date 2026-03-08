@@ -24,8 +24,9 @@ from .presets import load_presets
 from .settings_eval import build_dep_graph, build_reverse_deps, evaluate_expressions
 from .settings_registry import SettingDefinition
 from .settings_validate import validate
-from .slicer import _resolve_rotation, _resolve_scale, slice_file
-from .stl_transform import needs_rotation, needs_scaling
+from .packing import pack_models
+from .slicer import _resolve_rotation, _resolve_scale, resolve_settings, slice_batch, slice_file
+from .stl_transform import needs_rotation, needs_scaling, scale_stl
 from .threemf import convert_3mf_to_stl
 
 TOKEN_TTL = 1800  # 30-minute sliding window
@@ -446,6 +447,10 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
     if not models:
         return web.json_response({"error": "no models selected"}, status=400)
 
+    # Check if batch mode is enabled
+    batch = overrides.get("batch_models", config.defaults.get("batch_models", "false"))
+    use_batch = batch.lower() in ("true", "1", "yes") and len(models) > 1
+
     # Copy selected STLs to a fresh temp dir since slice_file moves files
     slice_dir = tempfile.mkdtemp(prefix="slicer_slice_")
     dst_paths = []
@@ -462,19 +467,10 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
 
     async def _run():
         try:
-            results = []
-            for dst in dst_paths:
-                success, message, archive_path, stats = await asyncio.to_thread(
-                    slice_file, config, dst, overrides,
-                    **({"archive_folder": archive_folder} if archive_folder else {}),
-                )
-                results.append({
-                    "name": dst.name,
-                    "success": success,
-                    "message": message,
-                    "archive_path": str(archive_path) if archive_path else None,
-                    "stats": stats,
-                })
+            if use_batch:
+                results = await _run_batch(config, dst_paths, overrides, archive_folder)
+            else:
+                results = await _run_individual(config, dst_paths, overrides, archive_folder)
             info["slice_result"] = {"results": results}
         except Exception as e:
             info["slice_result"] = {"results": [{
@@ -489,6 +485,55 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
 
     info["slice_task"] = asyncio.create_task(_run())
     return web.json_response({"status": "slicing"})
+
+
+async def _run_individual(config, dst_paths, overrides, archive_folder):
+    """Slice each model individually."""
+    results = []
+    for dst in dst_paths:
+        success, message, archive_path, stats = await asyncio.to_thread(
+            slice_file, config, dst, overrides,
+            **({"archive_folder": archive_folder} if archive_folder else {}),
+        )
+        results.append({
+            "name": dst.name,
+            "success": success,
+            "message": message,
+            "archive_path": str(archive_path) if archive_path else None,
+            "stats": stats,
+        })
+    return results
+
+
+async def _run_batch(config, dst_paths, overrides, archive_folder):
+    """Pack models onto beds and slice each bed."""
+    # Apply scaling before packing (packing reads bounding boxes)
+    sx, sy, sz = _resolve_scale(config.defaults, overrides)
+    if needs_scaling(sx, sy, sz):
+        for dst in dst_paths:
+            scale_stl(dst, sx, sy, sz)
+
+    active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+    bed_w = float(active.get("machine_width", "235"))
+    bed_d = float(active.get("machine_depth", "235"))
+
+    beds = pack_models(dst_paths, bed_w, bed_d, active)
+
+    results = []
+    for bed_models in beds:
+        names = [p.name for p, _, _ in bed_models]
+        success, message, archive_path, stats = await asyncio.to_thread(
+            slice_batch, config, bed_models, overrides,
+            archive_folder=archive_folder,
+        )
+        results.append({
+            "name": " + ".join(names),
+            "success": success,
+            "message": message,
+            "archive_path": str(archive_path) if archive_path else None,
+            "stats": stats,
+        })
+    return results
 
 
 async def handle_upload_status(request: web.Request) -> web.Response:

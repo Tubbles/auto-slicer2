@@ -16,6 +16,8 @@ from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 ROTATION_KEYS = {"rotation_x", "rotation_y", "rotation_z"}
 TRANSFORM_KEYS = {"scale", "scale_x", "scale_y", "scale_z"} | ROTATION_KEYS
+# Custom keys that are handled before slicing, never sent to CuraEngine
+CUSTOM_KEYS = TRANSFORM_KEYS | {"batch_models"}
 # Keep SCALE_KEYS as alias for backwards compatibility in tests
 SCALE_KEYS = TRANSFORM_KEYS
 
@@ -146,8 +148,8 @@ def resolve_settings(
         if defn and str(defn.default_value) == resolved[key] and key not in overrides and key not in forced_keys:
             del resolved[key]
 
-    # Strip custom transform keys — they're handled before slicing, not by CuraEngine
-    for key in TRANSFORM_KEYS:
+    # Strip custom keys — they're handled before slicing, not by CuraEngine
+    for key in CUSTOM_KEYS:
         resolved.pop(key, None)
 
     return resolved
@@ -312,6 +314,38 @@ def build_cura_command(
     return cmd
 
 
+def build_batch_command(
+    cura_bin: Path, def_dir: Path, printer_def: str,
+    models: list[tuple[Path, float, float]],
+    gcode_path: Path, settings: dict[str, str],
+) -> list[str]:
+    """Build CuraEngine command for multiple models on one bed.
+
+    models is [(stl_path, offset_x, offset_y), ...] from packing.
+    Global settings go before the first -l; per-mesh mesh_position_x/y
+    go after each -l.
+    """
+    extruders_dir = def_dir.parent / "extruders"
+    cmd = [
+        str(cura_bin),
+        "slice",
+        "-d", str(def_dir),
+        "-d", str(extruders_dir),
+        "-j", printer_def,
+    ]
+
+    for key, val in settings.items():
+        cmd.extend(["-s", f"{key}={val}"])
+
+    for stl_path, ox, oy in models:
+        cmd.extend(["-l", str(stl_path)])
+        cmd.extend(["-s", f"mesh_position_x={ox:.2f}"])
+        cmd.extend(["-s", f"mesh_position_y={oy:.2f}"])
+
+    cmd.extend(["-o", str(gcode_path)])
+    return cmd
+
+
 def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None) -> tuple[bool, str, Path | None, dict]:
     """Slice an STL file and return (success, message, archive_path, stats).
 
@@ -403,6 +437,87 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             error_dir = config.archive_dir / "errors"
             error_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(original_path), error_dir / original_path.name)
+            output = result.stdout + result.stderr
+            error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
+            print(f"[Failed] {error_msg}")
+            return False, f"CuraEngine error:\n{error_msg}", error_dir, {}
+
+    except Exception as e:
+        print(f"[Exception] {e}")
+        return False, f"System error: {e}", None, {}
+
+
+def slice_batch(
+    config: Config,
+    bed_models: list[tuple[Path, float, float]],
+    overrides: dict,
+    archive_folder: Path | None = None,
+) -> tuple[bool, str, Path | None, dict]:
+    """Slice multiple models on one bed and return (success, message, archive_path, stats).
+
+    bed_models is [(stl_path, offset_x, offset_y), ...] from packing.
+    """
+    active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+
+    unknown = find_unknown_gcode_tokens(active_settings)
+    if unknown:
+        msgs = [f"{k}: {', '.join(tokens)}" for k, tokens in unknown.items()]
+        error_msg = "Unknown gcode tokens: " + "; ".join(msgs)
+        print(f"[Error] {error_msg}")
+        return False, error_msg, None, {}
+
+    names = [p.stem for p, _, _ in bed_models]
+    batch_name = "+".join(names)
+    gcode_path = bed_models[0][0].parent / f"{batch_name}.gcode"
+
+    cmd = build_batch_command(
+        config.cura_bin, config.def_dir, config.printer_def,
+        bed_models, gcode_path, active_settings,
+    )
+
+    print(f"[Batch] Slicing {len(bed_models)} models: {', '.join(names)}")
+    print(f"[Command] {' '.join(cmd)}")
+
+    try:
+        result = subprocess.run(cmd, cwd=str(config.def_dir), capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+        if result.stdout:
+            print(f"[stdout] {result.stdout}")
+        if result.stderr:
+            print(f"[stderr] {result.stderr}")
+        print(f"[Exit code] {result.returncode}")
+
+        if result.returncode == 0:
+            header = parse_gcode_header(result.stdout + "\n" + result.stderr)
+            stats = extract_stats(header)
+            if header:
+                patch_gcode_header(gcode_path, header)
+
+            presets = load_presets()
+            inject_metadata(gcode_path, overrides, presets)
+
+            job_folder = archive_folder or config.archive_dir / batch_name / time.strftime("%Y%m%d_%H%M%S")
+            job_folder.mkdir(parents=True, exist_ok=True)
+
+            model_folder = job_folder.parent
+            for stl_path, _, _ in bed_models:
+                if stl_path.exists():
+                    shutil.move(str(stl_path), model_folder / stl_path.name)
+            if gcode_path.exists():
+                shutil.move(str(gcode_path), job_folder / gcode_path.name)
+
+            summary = format_settings_summary(overrides, presets, registry=config.registry)
+            if summary:
+                (job_folder / "settings.txt").write_text(summary)
+
+            print(f"[Success] Batch archived to {job_folder}")
+            return True, "Batch slicing completed", job_folder, stats
+        else:
+            error_dir = config.archive_dir / "errors"
+            error_dir.mkdir(parents=True, exist_ok=True)
+            for stl_path, _, _ in bed_models:
+                if stl_path.exists():
+                    shutil.move(str(stl_path), error_dir / stl_path.name)
             output = result.stdout + result.stderr
             error_msg = output.strip()[:500] if output.strip() else f"Exit code {result.returncode}"
             print(f"[Failed] {error_msg}")

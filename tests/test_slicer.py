@@ -11,7 +11,7 @@ from auto_slicer.handlers import _find_models_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
     SCALE_KEYS, TRANSFORM_KEYS, _resolve_rotation, _resolve_scale, _try_number,
-    build_cura_command, expand_gcode_tokens, extract_stats,
+    build_batch_command, build_cura_command, expand_gcode_tokens, extract_stats,
     find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
     matching_presets, merge_settings, parse_gcode_header,
@@ -94,6 +94,54 @@ class TestBuildCuraCommand:
         d_indices = [i for i, x in enumerate(cmd) if x == "-d"]
         assert len(d_indices) == 2
         assert cmd[d_indices[1] + 1] == "/resources/extruders"
+
+
+class TestBuildBatchCommand:
+    def test_multiple_models_with_positions(self):
+        cmd = build_batch_command(
+            cura_bin=Path("/bin/cura"),
+            def_dir=Path("/defs"),
+            printer_def="p.def.json",
+            models=[
+                (Path("/tmp/a.stl"), 10.0, 20.0),
+                (Path("/tmp/b.stl"), -30.0, -40.0),
+            ],
+            gcode_path=Path("/tmp/out.gcode"),
+            settings={"layer_height": "0.2"},
+        )
+        # Global settings come before first -l
+        s_idx = cmd.index("-s")
+        l_idx = cmd.index("-l")
+        assert s_idx < l_idx
+
+        # Both models present
+        l_indices = [i for i, x in enumerate(cmd) if x == "-l"]
+        assert len(l_indices) == 2
+        assert cmd[l_indices[0] + 1] == "/tmp/a.stl"
+        assert cmd[l_indices[1] + 1] == "/tmp/b.stl"
+
+        # Per-mesh position settings after each -l
+        # After first -l: mesh_position_x=10.00, mesh_position_y=20.00
+        after_first = cmd[l_indices[0] + 2:]
+        assert "mesh_position_x=10.00" in after_first
+        assert "mesh_position_y=20.00" in after_first
+
+        # After second -l: mesh_position_x=-30.00, mesh_position_y=-40.00
+        after_second = cmd[l_indices[1] + 2:]
+        assert "mesh_position_x=-30.00" in after_second
+        assert "mesh_position_y=-40.00" in after_second
+
+    def test_output_flag_at_end(self):
+        cmd = build_batch_command(
+            cura_bin=Path("/bin/cura"),
+            def_dir=Path("/defs"),
+            printer_def="p.def.json",
+            models=[(Path("/tmp/a.stl"), 0, 0)],
+            gcode_path=Path("/tmp/out.gcode"),
+            settings={},
+        )
+        assert cmd[-2] == "-o"
+        assert cmd[-1] == "/tmp/out.gcode"
 
 
 class TestResolveSettings:

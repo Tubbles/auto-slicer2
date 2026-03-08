@@ -22,6 +22,9 @@ SETTINGS: dict[str, dict] = {
     "rotation_z": {
         "default_value": "0",
     },
+    "batch_models": {
+        "default_value": "false",
+    },
     "layer_height": {
         "default_value": "0.2",
     },

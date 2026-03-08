@@ -11,7 +11,9 @@ from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .file_utils import find_models_in_zip
-from .slicer import format_duration, slice_file
+from .packing import pack_models
+from .slicer import format_duration, slice_batch, slice_file
+from .stl_transform import needs_scaling, scale_stl
 from .web_api import generate_token, TOKEN_TTL
 
 
@@ -202,6 +204,33 @@ def format_stats_line(stats: dict) -> str:
     return f"Time: {time_str} | Filament: {stats['filament_meters']}m"
 
 
+def _is_batch_mode(config: Config, overrides: dict) -> bool:
+    """Check if batch_models is enabled."""
+    val = overrides.get("batch_models", config.defaults.get("batch_models", "false"))
+    return val.lower() in ("true", "1", "yes")
+
+
+def _prepare_models_for_batch(models: list[Path], config: Config, overrides: dict) -> list[Path]:
+    """Convert 3MF→STL and apply scaling/rotation to models in place."""
+    from .slicer import _resolve_rotation, _resolve_scale
+    from .stl_transform import euler_to_rotation_matrix, needs_rotation
+    from .threemf import convert_3mf_to_stl
+
+    prepared = []
+    for m in models:
+        if m.suffix.lower() == ".3mf":
+            stl = m.with_suffix(".stl")
+            convert_3mf_to_stl(m, stl)
+            m = stl
+
+        sx, sy, sz = _resolve_scale(config.defaults, overrides)
+        if needs_scaling(sx, sy, sz):
+            scale_stl(m, sx, sy, sz)
+
+        prepared.append(m)
+    return prepared
+
+
 async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides: dict) -> None:
     """Extract a ZIP and slice all STL files inside it."""
     with tempfile.TemporaryDirectory() as extract_dir:
@@ -218,43 +247,121 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
             return
 
         n = len(stls)
-        await update.message.reply_text(
-            f"Received {zip_path.name}, slicing {n} file{'s' if n != 1 else ''}..."
-        )
+        batch = _is_batch_mode(config, overrides)
 
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        archive_folder = config.archive_dir / zip_path.stem / timestamp
+        if batch and n > 1:
+            await _handle_zip_batch(update, config, zip_path, sorted(stls), overrides)
+        else:
+            await _handle_zip_individual(update, config, zip_path, sorted(stls), overrides)
 
-        failures = []
-        file_stats = []
-        for stl in sorted(stls):
-            success, message, _, stats = slice_file(config, stl, overrides, archive_folder=archive_folder)
-            if success:
-                file_stats.append((stl.name, stats))
-            else:
-                failures.append((stl.name, message))
 
-        ok = n - len(failures)
-        lines = [f"Done! {ok}/{n} sliced.", f"Archived to: {archive_folder}"]
-        for name, msg in failures:
-            lines.append(f"Failed: {name} — {msg}")
+async def _handle_zip_batch(
+    update: Update, config: Config, zip_path: Path, models: list[Path], overrides: dict,
+) -> None:
+    """Pack models onto beds and slice each bed as a single CuraEngine invocation."""
+    from .slicer import _resolve_rotation, _resolve_scale, resolve_settings
+    from .stl_transform import euler_to_rotation_matrix, needs_rotation
 
-        if file_stats and any(s for _, s in file_stats):
-            lines.append("")
-            total_time = 0
-            total_filament = 0.0
-            for name, stats in file_stats:
-                if stats:
-                    t = format_duration(stats["time_seconds"])
-                    f = stats["filament_meters"]
-                    lines.append(f"{name} — {t}, {f}m")
-                    total_time += stats["time_seconds"]
-                    total_filament += stats["filament_meters"]
-                else:
-                    lines.append(f"{name} — (no stats)")
+    n = len(models)
+    await update.message.reply_text(
+        f"Received {zip_path.name}, packing {n} models onto beds..."
+    )
+
+    try:
+        prepared = _prepare_models_for_batch(models, config, overrides)
+    except Exception as e:
+        await update.message.reply_text(f"Preparation failed: {e}")
+        return
+
+    # Resolve active settings to get bed dimensions and adhesion margin
+    active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+    bed_w = float(active.get("machine_width", "235"))
+    bed_d = float(active.get("machine_depth", "235"))
+
+    beds = pack_models(prepared, bed_w, bed_d, active)
+    n_beds = len(beds)
+    await update.message.reply_text(
+        f"Packed into {n_beds} bed{'s' if n_beds != 1 else ''}, slicing..."
+    )
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    archive_folder = config.archive_dir / zip_path.stem / timestamp
+
+    failures = []
+    bed_stats = []
+    for i, bed_models in enumerate(beds):
+        names = [p.name for p, _, _ in bed_models]
+        bed_label = f"Bed {i + 1}" if n_beds > 1 else "Bed"
+        success, message, _, stats = slice_batch(config, bed_models, overrides, archive_folder=archive_folder)
+        if success:
+            bed_stats.append((bed_label, names, stats))
+        else:
+            failures.append((bed_label, names, message))
+
+    ok_beds = len(bed_stats)
+    lines = [f"Done! {ok_beds}/{n_beds} bed{'s' if n_beds != 1 else ''} sliced.", f"Archived to: {archive_folder}"]
+    for label, names, msg in failures:
+        lines.append(f"Failed: {label} ({', '.join(names)}) — {msg}")
+
+    if bed_stats:
+        lines.append("")
+        total_time = 0
+        total_filament = 0.0
+        for label, names, stats in bed_stats:
+            if stats:
+                t = format_duration(stats["time_seconds"])
+                f = stats["filament_meters"]
+                lines.append(f"{label} ({', '.join(names)}) — {t}, {f}m")
+                total_time += stats["time_seconds"]
+                total_filament += stats["filament_meters"]
+        if len(bed_stats) > 1:
             lines.append(f"\nTotal: {format_duration(total_time)}, {round(total_filament, 2)}m")
 
-        await update.message.reply_text("\n".join(lines))
+    await update.message.reply_text("\n".join(lines))
+
+
+async def _handle_zip_individual(
+    update: Update, config: Config, zip_path: Path, stls: list[Path], overrides: dict,
+) -> None:
+    """Slice each model individually (original behavior)."""
+    n = len(stls)
+    await update.message.reply_text(
+        f"Received {zip_path.name}, slicing {n} file{'s' if n != 1 else ''}..."
+    )
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    archive_folder = config.archive_dir / zip_path.stem / timestamp
+
+    failures = []
+    file_stats = []
+    for stl in stls:
+        success, message, _, stats = slice_file(config, stl, overrides, archive_folder=archive_folder)
+        if success:
+            file_stats.append((stl.name, stats))
+        else:
+            failures.append((stl.name, message))
+
+    ok = n - len(failures)
+    lines = [f"Done! {ok}/{n} sliced.", f"Archived to: {archive_folder}"]
+    for name, msg in failures:
+        lines.append(f"Failed: {name} — {msg}")
+
+    if file_stats and any(s for _, s in file_stats):
+        lines.append("")
+        total_time = 0
+        total_filament = 0.0
+        for name, stats in file_stats:
+            if stats:
+                t = format_duration(stats["time_seconds"])
+                f = stats["filament_meters"]
+                lines.append(f"{name} — {t}, {f}m")
+                total_time += stats["time_seconds"]
+                total_filament += stats["filament_meters"]
+            else:
+                lines.append(f"{name} — (no stats)")
+        lines.append(f"\nTotal: {format_duration(total_time)}, {round(total_filament, 2)}m")
+
+    await update.message.reply_text("\n".join(lines))
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

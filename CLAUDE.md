@@ -26,6 +26,7 @@ python auto-slicer2.py -c /path/to/config.ini
 - `aiohttp` library (HTTP API for Mini App)
 - `numpy-stl` library (STL scaling + writing converted meshes)
 - `lib3mf` library (3MF→STL conversion)
+- `rectpack` library (2D bin packing for batch model layout)
 - CuraEngine binary (path configured in config.ini)
 - Cura printer definitions directory
 
@@ -60,6 +61,7 @@ auto_slicer/
   settings_validate.py     # validate() type + bounds checking
   settings_eval.py         # Expression evaluator (dependency graph, safe eval)
   presets.py               # load_presets() (BUILTIN_PRESETS re-exported from defaults.py)
+  packing.py               # Bin-pack models onto print beds via rectpack
   stl_transform.py         # STL scaling + rotation matrix via numpy-stl
   threemf.py               # 3MF→STL conversion via lib3mf
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
@@ -74,6 +76,7 @@ tests/
   test_slicer.py           # tests for slicer command building, settings merge, and scaling
   test_stl_transform.py    # tests for STL scaling and rotation matrix
   test_threemf.py          # tests for 3MF→STL conversion
+  test_packing.py          # tests for model bed packing
   test_eval.py             # tests for expression evaluator
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
   test_web_api.py          # tests for web API helpers and endpoints
@@ -104,6 +107,8 @@ tests/
 
 **Model transforms** (`stl_transform.py`): Scaling via numpy-stl (modifies STL in place). Rotation via `euler_to_rotation_matrix()` which converts `rotation_x/y/z` (degrees) into CuraEngine's `mesh_rotation_matrix` string (3×3 matrix, `Rz * Ry * Rx` order). Rotation is applied by CuraEngine natively — we just inject the matrix setting. The `rotation_x/y/z` keys are custom (not in fdmprinter.def.json) and stripped before sending to CuraEngine, while `mesh_rotation_matrix` is a real CuraEngine setting that gets injected when any rotation angle is nonzero.
 
+**Batch packing** (`packing.py`): When `batch_models` is enabled, `pack_models()` reads each STL's XY bounding box, adds adhesion margin (skirt_distance, brim_width, or raft_margin depending on adhesion_type) plus an inter-model gap, and uses `rectpack` to bin-pack rectangles into bed-sized bins. Returns per-bed lists of `(path, offset_x, offset_y)` with offsets relative to bed center. `slice_batch()` then invokes CuraEngine with multiple `-l` flags, each followed by per-mesh `-s mesh_position_x=... -s mesh_position_y=...` settings.
+
 **Upload & Slice via webapp** (`web_api.py`): The "Upload" tab in the Mini App allows uploading STL/3MF/ZIP files via `POST /api/upload`, previewing the model with three.js (bounding box + bed outline), and triggering slicing via `POST /api/upload/{file_id}/slice`. Uploads are stored in temp directories with 30-minute TTL. Slicing runs async via `asyncio.create_task` + `asyncio.to_thread`, with status polling via `GET /api/upload/{file_id}/status`.
 
 ### Workflow
@@ -114,9 +119,10 @@ tests/
 4. If the file is 3MF, `convert_3mf_to_stl()` converts it to STL (CuraEngine only accepts STL)
 5. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
 6. If rotation settings are nonzero, `euler_to_rotation_matrix()` computes the matrix and injects `mesh_rotation_matrix`
-7. `slice_file()` invokes CuraEngine with merged settings (transform keys stripped — CuraEngine never sees them, except `mesh_rotation_matrix`)
-8. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
-9. On failure: moves original model to `archive/errors/`, sends error message
+7. If `batch_models` is enabled and multiple models are present, `pack_models()` bin-packs them onto beds using `rectpack`, then `slice_batch()` invokes CuraEngine once per bed with multiple `-l` flags and per-mesh `mesh_position_x/y` offsets
+8. Otherwise, `slice_file()` invokes CuraEngine per model with merged settings (custom keys stripped — CuraEngine never sees them, except `mesh_rotation_matrix`)
+9. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
+10. On failure: moves original model to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.
 
