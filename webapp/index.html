@@ -1568,11 +1568,11 @@ async function fetchPackLayout() {
 
 async function loadBedPreview(bedIndex) {
   if (!packedBeds || bedIndex >= packedBeds.length) return;
+  try {
   initScene();
   clearSceneMeshes();
 
   const bed = packedBeds[bedIndex];
-  console.log(`Loading bed ${bedIndex}:`, bed);
   const loader = new STLLoader();
   const colors = [0x4488cc, 0xcc8844, 0x44cc88, 0x8844cc, 0xcc4488, 0x88cc44];
   const combined = new THREE.Box3();
@@ -1633,6 +1633,7 @@ async function loadBedPreview(bedIndex) {
   // Update bed nav UI
   updateBedNav();
   updateBatchDimsDisplay(bed);
+  } catch (e) { setStatus('BED RENDER ERROR: ' + e.message, true); }
 }
 
 function updateBedNav() {
