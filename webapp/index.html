@@ -1691,10 +1691,10 @@ async function enterBatchMode() {
   }
   packedBeds = result.beds;
   activeBedIndex = 0;
-  await loadBedPreview(0);
   document.getElementById('upload-viewport').style.display = '';
   document.getElementById('upload-dims').style.display = '';
   document.getElementById('upload-actions').style.display = '';
+  await loadBedPreview(0);
   // In batch mode, model list shows which models are on which bed
   renderModelList();
   setStatus(`Packed ${checkedModels.size} model${checkedModels.size > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`);
