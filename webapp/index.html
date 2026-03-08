@@ -1758,13 +1758,14 @@ async function handleFile(file) {
     }
 
     // Batch mode: compute packing and show bed preview
-    if (isBatchMode() && uploadModels.length > 1) {
+    const bm = isBatchMode();
+    setStatus(`DEBUG: batch=${bm}, models=${uploadModels.length}`);
+    if (bm && uploadModels.length > 1) {
       await enterBatchMode();
     } else {
       await loadModelByIndex(0);
     }
     updateSliceButton();
-    setStatus(`Uploaded ${data.filename}` + (uploadModels.length > 1 ? ` (${uploadModels.length} models)` : ''));
   } catch (e) {
     setStatus('Upload error: ' + e.message, true);
   }
