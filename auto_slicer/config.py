@@ -59,6 +59,12 @@ CUSTOM_SETTINGS = [
         minimum_value=0.0, maximum_value=360.0,
         category="Model",
     ),
+    SettingDefinition(
+        key="batch_models", label="Batch Models",
+        description="Pack multiple models onto shared print beds instead of one model per bed",
+        setting_type="bool", default_value=False,
+        category="Model",
+    ),
 ]
 
 
