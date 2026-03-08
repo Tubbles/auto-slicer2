@@ -91,14 +91,28 @@ class TestPackModels:
         total = sum(len(b) for b in beds)
         assert total == 5
 
-    def test_offsets_are_center_relative(self, tmp_path):
+    def test_single_model_centered(self, tmp_path):
         stl = tmp_path / "a.stl"
         _make_box_stl(stl, 50, 50, 10)
         beds = pack_models([stl], 200, 200, {"adhesion_type": "none"})
         _, ox, oy = beds[0][0]
-        # Single model should be positioned within the bed
-        assert -100 <= ox <= 100
-        assert -100 <= oy <= 100
+        # Single model should be centered at (0, 0)
+        assert abs(ox) < 1.0
+        assert abs(oy) < 1.0
+
+    def test_group_centered_on_bed(self, tmp_path):
+        models = []
+        for i in range(3):
+            p = tmp_path / f"m{i}.stl"
+            _make_box_stl(p, 40, 40, 10)
+            models.append(p)
+        beds = pack_models(models, 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 1
+        xs = [ox for _, ox, _ in beds[0]]
+        ys = [oy for _, _, oy in beds[0]]
+        # Group center should be near (0, 0)
+        assert abs((min(xs) + max(xs)) / 2) < 1.0
+        assert abs((min(ys) + max(ys)) / 2) < 1.0
 
     def test_brim_increases_effective_size(self, tmp_path):
         models = []

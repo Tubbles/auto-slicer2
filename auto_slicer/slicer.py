@@ -346,10 +346,11 @@ def build_batch_command(
     return cmd
 
 
-def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None) -> tuple[bool, str, Path | None, dict]:
+def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: Path | None = None, archive_subdir: str = "") -> tuple[bool, str, Path | None, dict]:
     """Slice an STL file and return (success, message, archive_path, stats).
 
     If archive_folder is provided, use it instead of creating a new timestamped folder.
+    archive_subdir mirrors ZIP internal structure (e.g. "subdir/") inside the archive.
     stats is a dict with time_seconds and filament_meters, or empty on failure.
     """
     original_path = stl_path
@@ -420,18 +421,20 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             inject_metadata(gcode_path, overrides, presets)
 
             job_folder = archive_folder or config.archive_dir / stl_path.stem / time.strftime("%Y%m%d_%H%M%S")
+            gcode_dest = job_folder / archive_subdir if archive_subdir else job_folder
+            gcode_dest.mkdir(parents=True, exist_ok=True)
             job_folder.mkdir(parents=True, exist_ok=True)
 
             model_folder = job_folder.parent
             shutil.move(str(original_path), model_folder / original_path.name)
             if gcode_path.exists():
-                shutil.move(str(gcode_path), job_folder / gcode_path.name)
+                shutil.move(str(gcode_path), gcode_dest / gcode_path.name)
 
             summary = format_settings_summary(overrides, presets, registry=config.registry)
             if summary:
-                (job_folder / "settings.txt").write_text(summary)
+                (gcode_dest / "settings.txt").write_text(summary)
 
-            print(f"[Success] Archived to {job_folder}")
+            print(f"[Success] Archived to {gcode_dest}")
             return True, "Slicing completed successfully", job_folder, stats
         else:
             error_dir = config.archive_dir / "errors"

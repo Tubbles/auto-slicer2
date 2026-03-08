@@ -362,7 +362,8 @@
   .upload-actions {
     display: flex;
     gap: 8px;
-    margin: 12px 0;
+    margin: 8px 0 0;
+    flex-shrink: 0;
   }
   .upload-slice-btn {
     flex: 1;
@@ -392,7 +393,7 @@
   }
   .upload-clear-btn:active { opacity: 0.7; }
   .upload-model-list {
-    max-height: 160px;
+    max-height: 40vh;
     overflow-y: auto;
     border: 1px solid var(--hint);
     border-radius: 8px;
@@ -525,12 +526,12 @@
     <button id="bed-next">&gt;</button>
   </div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
+  <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
+  <div id="upload-result"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
     <button class="upload-clear-btn" id="upload-clear-btn">Clear</button>
     <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
   </div>
-  <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
-  <div id="upload-result"></div>
 </div>
 
 <div id="settings-container">
@@ -1287,6 +1288,7 @@ let originalGeometry = null;
 let originalBoxHelper = null;
 let transformedBoxHelper = null;
 let bedBox = null;
+let originWidget = null;
 let uploadFileId = null;
 let sceneReady = false;
 let animating = false;
@@ -1295,6 +1297,7 @@ let animating = false;
 let packedBeds = null;  // array of beds, each bed is [{index, name, offset_x, offset_y}, ...]
 let activeBedIndex = 0;
 let stlCache = {};  // index -> ArrayBuffer, avoid re-fetching
+let rejectedModels = new Set();  // checked but not packed (e.g. too large for bed)
 
 function weblog(msg) {
   fetch(API_BASE + '/api/log', {
@@ -1311,9 +1314,7 @@ function isBatchMode() {
   const raw = (pc['batch_models'] !== undefined && pc['batch_models'] !== null) ? pc['batch_models']
     : (ov['batch_models'] !== undefined ? ov['batch_models']
     : (defs['batch_models'] !== undefined ? defs['batch_models'] : false));
-  const result = raw === true || raw === 'true' || raw === 'True';
-  weblog('isBatchMode: raw=' + raw + ' -> ' + result);
-  return result;
+  return raw === true || raw === 'true' || raw === 'True';
 }
 
 function initScene() {
@@ -1428,6 +1429,20 @@ function addBedOutline() {
   geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
   bedBox = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x888888, opacity: 0.5, transparent: true }));
   scene.add(bedBox);
+
+  // Origin corner widget: colored axes at (0,0) = (-hw, -hd) in scene coords
+  if (originWidget) { scene.remove(originWidget); originWidget = null; }
+  const g = new THREE.Group();
+  const len = Math.min(bed.width, bed.depth) * 0.08;
+  const ax = (pts, col) => {
+    const bg = new THREE.BufferGeometry().setFromPoints(pts);
+    g.add(new THREE.Line(bg, new THREE.LineBasicMaterial({ color: col })));
+  };
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw + len, -hd, 0)], 0xff0000);
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd + len, 0)], 0x00cc00);
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd, len)], 0x4444ff);
+  scene.add(g);
+  originWidget = g;
 }
 
 function getBedDims() {
@@ -1536,6 +1551,7 @@ function clearSceneMeshes() {
   if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
   if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
+  if (originWidget) { scene.remove(originWidget); originWidget = null; }
 }
 
 async function fetchSTL(index) {
@@ -1564,7 +1580,7 @@ async function fetchPackLayout() {
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      weblog('Pack endpoint error: ' + r.status + ' ' + JSON.stringify(err));
+      weblog('Pack error: ' + r.status + ' ' + JSON.stringify(err));
       return null;
     }
     return await r.json();
@@ -1642,12 +1658,12 @@ async function loadBedPreview(bedIndex) {
   controls.target.copy(center);
   controls.update();
 
-  weblog(`bed render: ${modelMeshes.length} meshes, center=(${center.x.toFixed(1)},${center.y.toFixed(1)},${center.z.toFixed(1)}), size=(${size.x.toFixed(1)},${size.y.toFixed(1)},${size.z.toFixed(1)}), cam=(${camera.position.x.toFixed(0)},${camera.position.y.toFixed(0)},${camera.position.z.toFixed(0)})`);
+  // kept for debugging: weblog(`bed render: ${modelMeshes.length} meshes, size=(${size.x.toFixed(1)},${size.y.toFixed(1)},${size.z.toFixed(1)})`);
 
   // Update bed nav UI
   updateBedNav();
   updateBatchDimsDisplay(bed);
-  } catch (e) { weblog('BED RENDER ERROR: ' + e.message + ' ' + e.stack); }
+  } catch (e) { weblog('Bed render error: ' + e.message); }
 }
 
 function updateBedNav() {
@@ -1678,7 +1694,6 @@ async function enterBatchMode() {
   if (!uploadFileId || checkedModels.size === 0) return;
   setStatus('Computing bed layout...');
   const result = await fetchPackLayout();
-  weblog('Pack result: ' + JSON.stringify(result));
   if (!result || !result.beds || result.beds.length === 0) {
     setStatus('Failed to compute bed layout', true);
     // Fall back to individual preview
@@ -1691,19 +1706,30 @@ async function enterBatchMode() {
   }
   packedBeds = result.beds;
   activeBedIndex = 0;
+
+  // Detect rejected models (checked but not packed — e.g. too large)
+  const packedIndices = new Set();
+  for (const bed of packedBeds) for (const item of bed) packedIndices.add(item.index);
+  rejectedModels = new Set([...checkedModels].filter(i => !packedIndices.has(i)));
+
   document.getElementById('upload-viewport').style.display = '';
   document.getElementById('upload-dims').style.display = '';
   document.getElementById('upload-actions').style.display = '';
   await loadBedPreview(0);
-  // In batch mode, model list shows which models are on which bed
   renderModelList();
-  setStatus(`Packed ${checkedModels.size} model${checkedModels.size > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`);
+  updateSliceButton();
+
+  const packed = packedIndices.size;
+  let msg = `Packed ${packed} model${packed > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`;
+  if (rejectedModels.size > 0) msg += ` (${rejectedModels.size} rejected — too large?)`;
+  setStatus(msg);
 }
 
 function exitBatchMode() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
+  rejectedModels.clear();
   document.getElementById('upload-bed-nav').style.display = 'none';
   // Reload current individual model
   if (uploadFileId && uploadModels.length > 0) {
@@ -1775,9 +1801,7 @@ async function handleFile(file) {
     }
 
     // Batch mode: compute packing and show bed preview
-    const bm = isBatchMode();
-    weblog('handleFile: batch=' + bm + ', models=' + uploadModels.length);
-    if (bm && uploadModels.length > 1) {
+    if (isBatchMode() && uploadModels.length > 1) {
       await enterBatchMode();
     } else {
       await loadModelByIndex(0);
@@ -1798,14 +1822,41 @@ function renderModelList() {
 
   if (packedBeds) {
     // Batch mode: group models by bed
+    const packedIndices = new Set();
     for (let b = 0; b < packedBeds.length; b++) {
       const bed = packedBeds[b];
       const active = b === activeBedIndex ? ' active' : '';
       html += `<div class="upload-model-bed-header${active}" data-bed="${b}">Bed ${b + 1} (${bed.length} model${bed.length > 1 ? 's' : ''})</div>`;
       for (const item of bed) {
+        packedIndices.add(item.index);
         html += `<div class="upload-model-item" data-index="${item.index}" data-bed="${b}">
-          <input type="checkbox" ${checkedModels.has(item.index) ? 'checked' : ''} data-cb-index="${item.index}">
+          <input type="checkbox" checked data-cb-index="${item.index}">
           <span class="model-name">${item.name}</span>
+        </div>`;
+      }
+    }
+    // Rejected models (checked but not packed)
+    const rejected = [...rejectedModels].sort();
+    if (rejected.length > 0) {
+      html += `<div class="upload-model-bed-header" style="color:var(--hint)">Rejected (${rejected.length})</div>`;
+      for (const idx of rejected) {
+        html += `<div class="upload-model-item" data-index="${idx}">
+          <input type="checkbox" checked data-cb-index="${idx}">
+          <span class="model-name" style="text-decoration:line-through;color:var(--hint)">${uploadModels[idx]}</span>
+        </div>`;
+      }
+    }
+    // Unchecked models
+    const unchecked = [];
+    for (let i = 0; i < uploadModels.length; i++) {
+      if (!checkedModels.has(i)) unchecked.push(i);
+    }
+    if (unchecked.length > 0) {
+      html += `<div class="upload-model-bed-header" style="color:var(--hint)">Unchecked (${unchecked.length})</div>`;
+      for (const idx of unchecked) {
+        html += `<div class="upload-model-item" data-index="${idx}">
+          <input type="checkbox" data-cb-index="${idx}">
+          <span class="model-name" style="color:var(--hint)">${uploadModels[idx]}</span>
         </div>`;
       }
     }
@@ -1879,8 +1930,11 @@ function renderModelList() {
 function updateSliceButton() {
   const btn = document.getElementById('upload-slice-btn');
   if (uploadModels.length > 1) {
-    btn.textContent = `Slice (${checkedModels.size}/${uploadModels.length})`;
-    btn.disabled = checkedModels.size === 0;
+    const sliceable = packedBeds
+      ? checkedModels.size - rejectedModels.size
+      : checkedModels.size;
+    btn.textContent = `Slice (${sliceable}/${uploadModels.length})`;
+    btn.disabled = sliceable <= 0;
   } else {
     btn.textContent = 'Slice';
     btn.disabled = false;
@@ -2039,6 +2093,7 @@ async function clearUpload() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
+  rejectedModels.clear();
   document.getElementById('upload-model-list').style.display = 'none';
   document.getElementById('upload-bed-nav').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';

@@ -249,14 +249,16 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
         n = len(stls)
         batch = _is_batch_mode(config, overrides)
 
+        extract_root = Path(extract_dir)
         if batch and n > 1:
-            await _handle_zip_batch(update, config, zip_path, sorted(stls), overrides)
+            await _handle_zip_batch(update, config, zip_path, sorted(stls), overrides, extract_root)
         else:
-            await _handle_zip_individual(update, config, zip_path, sorted(stls), overrides)
+            await _handle_zip_individual(update, config, zip_path, sorted(stls), overrides, extract_root)
 
 
 async def _handle_zip_batch(
     update: Update, config: Config, zip_path: Path, models: list[Path], overrides: dict,
+    extract_root: Path | None = None,
 ) -> None:
     """Pack models onto beds and slice each bed as a single CuraEngine invocation."""
     from .slicer import _resolve_rotation, _resolve_scale, resolve_settings
@@ -322,6 +324,7 @@ async def _handle_zip_batch(
 
 async def _handle_zip_individual(
     update: Update, config: Config, zip_path: Path, stls: list[Path], overrides: dict,
+    extract_root: Path | None = None,
 ) -> None:
     """Slice each model individually (original behavior)."""
     n = len(stls)
@@ -335,7 +338,10 @@ async def _handle_zip_individual(
     failures = []
     file_stats = []
     for stl in stls:
-        success, message, _, stats = slice_file(config, stl, overrides, archive_folder=archive_folder)
+        subdir = str(stl.relative_to(extract_root).parent) if extract_root else ""
+        if subdir == ".":
+            subdir = ""
+        success, message, _, stats = slice_file(config, stl, overrides, archive_folder=archive_folder, archive_subdir=subdir)
         if success:
             file_stats.append((stl.name, stats))
         else:

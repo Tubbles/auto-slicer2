@@ -87,13 +87,21 @@ def pack_models(
         path, _, _, orig_w, orig_d = items[rid]
         # rectpack places at (x, y) from bin corner (0,0)
         # Model center in bin coords: x + pw/2, y + pd/2
-        # But we need to subtract half_margin since padding is symmetric
         center_x = (x + pw / 2) / SCALE
         center_y = (y + pd / 2) / SCALE
         # Convert to bed-center-relative offset
         offset_x = center_x - bed_width / 2
         offset_y = center_y - bed_depth / 2
         bins.setdefault(bin_idx, []).append((path, offset_x, offset_y))
+
+    # Center each bin's model group on the bed
+    for bin_idx in bins:
+        entries = bins[bin_idx]
+        xs = [ox for _, ox, _ in entries]
+        ys = [oy for _, _, oy in entries]
+        shift_x = (min(xs) + max(xs)) / 2
+        shift_y = (min(ys) + max(ys)) / 2
+        bins[bin_idx] = [(p, ox - shift_x, oy - shift_y) for p, ox, oy in entries]
 
     # Sort by bin index and return
     return [bins[k] for k in sorted(bins)]

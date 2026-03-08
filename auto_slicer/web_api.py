@@ -348,7 +348,7 @@ async def handle_upload(request: web.Request) -> web.Response:
         "slice_result": None,
     }
 
-    model_names = [m["name"] for m in models]
+    model_names = [m.get("rel_path", m["name"]) for m in models]
     return web.json_response({"file_id": file_id, "filename": filename, "models": model_names})
 
 
@@ -367,6 +367,7 @@ def _resolve_upload(file_path: Path, tmpdir: Path) -> list[dict]:
         seen: dict[str, int] = {}
         result = []
         for m in sorted(models):
+            rel_path = str(m.relative_to(extract_dir))
             name = m.name
             if name in seen:
                 seen[name] += 1
@@ -376,10 +377,10 @@ def _resolve_upload(file_path: Path, tmpdir: Path) -> list[dict]:
             else:
                 seen[name] = 0
             stl = _prepare_stl(m, tmpdir, out_name=name)
-            result.append({"name": m.name, "stl_path": str(stl)})
+            result.append({"name": m.name, "rel_path": rel_path, "stl_path": str(stl)})
         return result
     stl = _prepare_stl(file_path, tmpdir)
-    return [{"name": file_path.name, "stl_path": str(stl)}]
+    return [{"name": file_path.name, "rel_path": file_path.name, "stl_path": str(stl)}]
 
 
 async def handle_upload_model(request: web.Request) -> web.Response:
@@ -459,9 +460,10 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         bed = []
         for path, ox, oy in bed_models:
             idx = path_to_idx.get(str(path))
+            m = all_models[idx] if idx is not None else {}
             bed.append({
                 "index": idx,
-                "name": all_models[idx]["name"] if idx is not None else path.name,
+                "name": m.get("rel_path", m.get("name", path.name)),
                 "offset_x": round(ox, 2),
                 "offset_y": round(oy, 2),
             })
