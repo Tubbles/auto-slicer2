@@ -1628,6 +1628,8 @@ async function loadBedPreview(bedIndex) {
   controls.target.copy(center);
   controls.update();
 
+  setStatus(`DEBUG bed: ${modelMeshes.length} meshes, center=(${center.x.toFixed(1)},${center.y.toFixed(1)},${center.z.toFixed(1)}), size=(${size.x.toFixed(1)},${size.y.toFixed(1)},${size.z.toFixed(1)}), cam=(${camera.position.x.toFixed(0)},${camera.position.y.toFixed(0)},${camera.position.z.toFixed(0)})`);
+
   // Update bed nav UI
   updateBedNav();
   updateBatchDimsDisplay(bed);
