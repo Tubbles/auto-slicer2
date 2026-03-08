@@ -280,7 +280,7 @@ async def _handle_zip_batch(
     bed_w = float(active.get("machine_width", "235"))
     bed_d = float(active.get("machine_depth", "235"))
 
-    beds = pack_models(prepared, bed_w, bed_d, active)
+    beds, _rejected = pack_models(prepared, bed_w, bed_d, active)
     n_beds = len(beds)
     await update.message.reply_text(
         f"Packed into {n_beds} bed{'s' if n_beds != 1 else ''}, slicing..."

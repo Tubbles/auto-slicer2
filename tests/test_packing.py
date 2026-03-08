@@ -66,18 +66,20 @@ class TestPackModels:
     def test_single_model(self, tmp_path):
         stl = tmp_path / "a.stl"
         _make_box_stl(stl, 50, 50, 10)
-        beds = pack_models([stl], 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
+        beds, rejected = pack_models([stl], 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
         assert len(beds) == 1
         assert len(beds[0]) == 1
+        assert rejected == []
 
     def test_two_models_fit_one_bed(self, tmp_path):
         a = tmp_path / "a.stl"
         b = tmp_path / "b.stl"
         _make_box_stl(a, 50, 50, 10)
         _make_box_stl(b, 50, 50, 10)
-        beds = pack_models([a, b], 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
+        beds, rejected = pack_models([a, b], 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
         assert len(beds) == 1
         assert len(beds[0]) == 2
+        assert rejected == []
 
     def test_models_overflow_to_second_bed(self, tmp_path):
         models = []
@@ -86,15 +88,16 @@ class TestPackModels:
             _make_box_stl(p, 100, 100, 10)
             models.append(p)
         # 100mm + margin ~ 105mm each, bed 235mm → max 2x2=4 per bed
-        beds = pack_models(models, 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
+        beds, rejected = pack_models(models, 235, 235, {"adhesion_type": "skirt", "skirt_distance": "3"})
         assert len(beds) >= 2
         total = sum(len(b) for b in beds)
         assert total == 5
+        assert rejected == []
 
     def test_single_model_centered(self, tmp_path):
         stl = tmp_path / "a.stl"
         _make_box_stl(stl, 50, 50, 10)
-        beds = pack_models([stl], 200, 200, {"adhesion_type": "none"})
+        beds, _ = pack_models([stl], 200, 200, {"adhesion_type": "none"})
         _, ox, oy = beds[0][0]
         # Single model should be centered at (0, 0)
         assert abs(ox) < 1.0
@@ -106,7 +109,7 @@ class TestPackModels:
             p = tmp_path / f"m{i}.stl"
             _make_box_stl(p, 40, 40, 10)
             models.append(p)
-        beds = pack_models(models, 235, 235, {"adhesion_type": "none"})
+        beds, _ = pack_models(models, 235, 235, {"adhesion_type": "none"})
         assert len(beds) == 1
         xs = [ox for _, ox, _ in beds[0]]
         ys = [oy for _, _, oy in beds[0]]
@@ -121,7 +124,19 @@ class TestPackModels:
             _make_box_stl(p, 100, 100, 10)
             models.append(p)
         # With no adhesion: 100+2mm gap = 102mm each, 2 fit in 210mm → 4 models in 1 bed
-        beds_none = pack_models(models, 210, 210, {"adhesion_type": "none"})
+        beds_none, _ = pack_models(models, 210, 210, {"adhesion_type": "none"})
         # With 20mm brim: 100+40+2mm = 142mm each, only 1 fits per row → needs more beds
-        beds_brim = pack_models(models, 210, 210, {"adhesion_type": "brim", "brim_width": "20"})
+        beds_brim, _ = pack_models(models, 210, 210, {"adhesion_type": "brim", "brim_width": "20"})
         assert len(beds_brim) >= len(beds_none)
+
+    def test_oversized_model_rejected(self, tmp_path):
+        small = tmp_path / "small.stl"
+        huge = tmp_path / "huge.stl"
+        _make_box_stl(small, 50, 50, 10)
+        _make_box_stl(huge, 300, 300, 10)  # larger than 235mm bed
+        beds, rejected = pack_models([small, huge], 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 1
+        assert len(beds[0]) == 1  # only the small one packed
+        assert len(rejected) == 1
+        assert rejected[0][0] == huge
+        assert rejected[0][1] == "too large for bed"

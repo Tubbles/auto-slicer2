@@ -48,17 +48,16 @@ def pack_models(
     bed_width: float,
     bed_depth: float,
     settings: dict[str, str],
-) -> list[list[tuple[Path, float, float]]]:
+) -> tuple[list[list[tuple[Path, float, float]]], list[tuple[Path, str]]]:
     """Pack models into bed-sized bins.
 
-    Returns a list of beds, each containing [(stl_path, offset_x, offset_y), ...].
+    Returns (beds, rejected) where:
+    - beds: list of beds, each containing [(stl_path, offset_x, offset_y), ...]
+    - rejected: list of (stl_path, reason) for models that couldn't be packed
+
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
     margin = adhesion_margin(settings) + MODEL_GAP
-    # Each model needs margin on all sides, but adjacent models share the gap,
-    # so add margin to each model's dimensions (margin per side = margin / 2,
-    # but since both neighbors add it, the total gap = margin)
-    half_margin = margin / 2.0
 
     # Compute padded sizes
     items = []
@@ -82,8 +81,10 @@ def pack_models(
     packer.pack()
 
     # Collect results per bin
+    packed_rids = set()
     bins: dict[int, list[tuple[Path, float, float]]] = {}
     for bin_idx, x, y, pw, pd, rid in packer.rect_list():
+        packed_rids.add(rid)
         path, _, _, orig_w, orig_d = items[rid]
         # rectpack places at (x, y) from bin corner (0,0)
         # Model center in bin coords: x + pw/2, y + pd/2
@@ -103,5 +104,14 @@ def pack_models(
         shift_y = (min(ys) + max(ys)) / 2
         bins[bin_idx] = [(p, ox - shift_x, oy - shift_y) for p, ox, oy in entries]
 
-    # Sort by bin index and return
-    return [bins[k] for k in sorted(bins)]
+    # Identify rejected models and determine reason
+    rejected = []
+    for i, (p, pw, pd, w, d) in enumerate(items):
+        if i not in packed_rids:
+            if pw > bw or pd > bd:
+                rejected.append((p, "too large for bed"))
+            else:
+                rejected.append((p, "could not fit"))
+
+    beds = [bins[k] for k in sorted(bins)]
+    return beds, rejected
