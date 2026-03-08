@@ -655,6 +655,17 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "time": int(time.time())})
 
 
+async def handle_log(request: web.Request) -> web.Response:
+    """POST /api/log — print frontend log messages to stdout."""
+    try:
+        body = await request.json()
+        msg = body.get("msg", "")
+    except Exception:
+        msg = await request.text()
+    print(f"[WEBAPP] {msg}", flush=True)
+    return web.json_response({"ok": True})
+
+
 @web.middleware
 async def auth_middleware(request: web.Request, handler) -> web.Response:
     """Validate Bearer token for all endpoints except health and OPTIONS."""
@@ -744,5 +755,6 @@ def create_web_app(
     app.router.add_post("/api/upload/{file_id}/slice", handle_upload_slice)
     app.router.add_get("/api/upload/{file_id}/status", handle_upload_status)
     app.router.add_delete("/api/upload/{file_id}", handle_upload_delete)
+    app.router.add_post("/api/log", handle_log)
 
     return app

@@ -1296,6 +1296,14 @@ let packedBeds = null;  // array of beds, each bed is [{index, name, offset_x, o
 let activeBedIndex = 0;
 let stlCache = {};  // index -> ArrayBuffer, avoid re-fetching
 
+function weblog(msg) {
+  fetch(API_BASE + '/api/log', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ msg: String(msg) }),
+  }).catch(() => {});
+}
+
 function isBatchMode() {
   const pc = window.pendingChanges || {};
   const ov = window.overrides || {};
@@ -1304,7 +1312,7 @@ function isBatchMode() {
     : (ov['batch_models'] !== undefined ? ov['batch_models']
     : (defs['batch_models'] !== undefined ? defs['batch_models'] : false));
   const result = raw === true || raw === 'true' || raw === 'True';
-  console.log('isBatchMode:', raw, '->', result);
+  weblog('isBatchMode: raw=' + raw + ' -> ' + result);
   return result;
 }
 
@@ -1556,12 +1564,12 @@ async function fetchPackLayout() {
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      console.error('Pack endpoint error:', r.status, err);
+      weblog('Pack endpoint error: ' + r.status + ' ' + JSON.stringify(err));
       return null;
     }
     return await r.json();
   } catch (e) {
-    console.error('Pack fetch error:', e);
+    weblog('Pack fetch error: ' + e.message);
     return null;
   }
 }
@@ -1628,12 +1636,12 @@ async function loadBedPreview(bedIndex) {
   controls.target.copy(center);
   controls.update();
 
-  setStatus(`DEBUG bed: ${modelMeshes.length} meshes, center=(${center.x.toFixed(1)},${center.y.toFixed(1)},${center.z.toFixed(1)}), size=(${size.x.toFixed(1)},${size.y.toFixed(1)},${size.z.toFixed(1)}), cam=(${camera.position.x.toFixed(0)},${camera.position.y.toFixed(0)},${camera.position.z.toFixed(0)})`);
+  weblog(`bed render: ${modelMeshes.length} meshes, center=(${center.x.toFixed(1)},${center.y.toFixed(1)},${center.z.toFixed(1)}), size=(${size.x.toFixed(1)},${size.y.toFixed(1)},${size.z.toFixed(1)}), cam=(${camera.position.x.toFixed(0)},${camera.position.y.toFixed(0)},${camera.position.z.toFixed(0)})`);
 
   // Update bed nav UI
   updateBedNav();
   updateBatchDimsDisplay(bed);
-  } catch (e) { setStatus('BED RENDER ERROR: ' + e.message, true); }
+  } catch (e) { weblog('BED RENDER ERROR: ' + e.message + ' ' + e.stack); }
 }
 
 function updateBedNav() {
@@ -1664,7 +1672,7 @@ async function enterBatchMode() {
   if (!uploadFileId || checkedModels.size === 0) return;
   setStatus('Computing bed layout...');
   const result = await fetchPackLayout();
-  console.log('Pack result:', result);
+  weblog('Pack result: ' + JSON.stringify(result));
   if (!result || !result.beds || result.beds.length === 0) {
     setStatus('Failed to compute bed layout', true);
     // Fall back to individual preview
@@ -1762,7 +1770,7 @@ async function handleFile(file) {
 
     // Batch mode: compute packing and show bed preview
     const bm = isBatchMode();
-    setStatus(`DEBUG: batch=${bm}, models=${uploadModels.length}`);
+    weblog('handleFile: batch=' + bm + ', models=' + uploadModels.length);
     if (bm && uploadModels.length > 1) {
       await enterBatchMode();
     } else {
