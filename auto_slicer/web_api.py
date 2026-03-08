@@ -442,11 +442,15 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         return web.json_response({"beds": []})
 
     stl_paths = [Path(all_models[i]["stl_path"]) for i in indices]
-    active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
-    bed_w = float(active.get("machine_width", "235"))
-    bed_d = float(active.get("machine_depth", "235"))
 
-    beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
+    try:
+        active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
+        bed_w = float(active.get("machine_width", "235"))
+        bed_d = float(active.get("machine_depth", "235"))
+        beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
+    except Exception as exc:
+        print(f"Pack error: {exc}")
+        return web.json_response({"error": str(exc)}, status=500)
 
     # Map paths back to model indices
     path_to_idx = {str(Path(all_models[i]["stl_path"])): i for i in indices}
