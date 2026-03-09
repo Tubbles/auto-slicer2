@@ -1336,11 +1336,11 @@ function initScene() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  scene.add(new THREE.AmbientLight(0x666666));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(1, 1, 1);
+  scene.add(new THREE.AmbientLight(0x999999));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  dirLight.position.set(1, 1, 1.5);
   scene.add(dirLight);
-  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
   dirLight2.position.set(-1, -0.5, -1);
   scene.add(dirLight2);
 
@@ -1386,9 +1386,9 @@ function loadSTL(arrayBuffer) {
   geometry.computeBoundingBox();
 
   const material = new THREE.MeshPhongMaterial({
-    color: 0x4488cc,
+    color: 0x3399ee,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.85,
     side: THREE.DoubleSide,
   });
   modelMesh = new THREE.Mesh(geometry, material);
@@ -1425,7 +1425,7 @@ function addBedOutline() {
     -hw, hd, 0, -hw, -hd, 0,
   ]);
   geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  bedBox = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x888888, opacity: 0.5, transparent: true }));
+  bedBox = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xcccccc }));
   scene.add(bedBox);
 
   // Origin corner widget: colored axes at (0,0) = (-hw, -hd) in scene coords
@@ -1436,9 +1436,9 @@ function addBedOutline() {
     const bg = new THREE.BufferGeometry().setFromPoints(pts);
     g.add(new THREE.Line(bg, new THREE.LineBasicMaterial({ color: col })));
   };
-  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw + len, -hd, 0)], 0xff0000);
-  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd + len, 0)], 0x00cc00);
-  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd, len)], 0x4444ff);
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw + len, -hd, 0)], 0xff3333);
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd + len, 0)], 0x33ee33);
+  ax([new THREE.Vector3(-hw, -hd, 0), new THREE.Vector3(-hw, -hd, len)], 0x5588ff);
   scene.add(g);
   originWidget = g;
 }
@@ -1490,7 +1490,7 @@ function updateTransforms() {
   // Update transformed bbox
   if (transformedBoxHelper) scene.remove(transformedBoxHelper);
   const transformedBox = new THREE.Box3().setFromObject(modelMesh);
-  transformedBoxHelper = new THREE.Box3Helper(transformedBox, 0xee8833);
+  transformedBoxHelper = new THREE.Box3Helper(transformedBox, 0xff9933);
   scene.add(transformedBoxHelper);
 
   updateDimsDisplay();
@@ -1595,7 +1595,7 @@ async function loadBedPreview(bedIndex) {
 
   const bed = packedBeds[bedIndex];
   const loader = new STLLoader();
-  const colors = [0x4488cc, 0xcc8844, 0x44cc88, 0x8844cc, 0xcc4488, 0x88cc44];
+  const colors = [0x3399ee, 0xee9933, 0x33dd88, 0xaa44ee, 0xee4488, 0x88dd33];
   const combined = new THREE.Box3();
 
   for (let i = 0; i < bed.length; i++) {
@@ -1606,7 +1606,7 @@ async function loadBedPreview(bedIndex) {
     const material = new THREE.MeshPhongMaterial({
       color: colors[i % colors.length],
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.85,
       side: THREE.DoubleSide,
     });
     // Center geometry at origin (STL vertices may start at arbitrary positions)
