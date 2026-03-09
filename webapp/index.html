@@ -1297,7 +1297,8 @@ let animating = false;
 let packedBeds = null;  // array of beds, each bed is [{index, name, offset_x, offset_y}, ...]
 let activeBedIndex = 0;
 let stlCache = {};  // index -> ArrayBuffer, avoid re-fetching
-let rejectedModels = new Map();  // index → reason string (e.g. "too large for bed")
+
+
 
 function weblog(msg) {
   fetch(API_BASE + '/api/log', {
@@ -1707,15 +1708,6 @@ async function enterBatchMode() {
   packedBeds = result.beds;
   activeBedIndex = 0;
 
-  // Build rejected map from API response and uncheck them
-  rejectedModels = new Map();
-  if (result.rejected) {
-    for (const r of result.rejected) {
-      rejectedModels.set(r.index, r.reason || 'unknown');
-      checkedModels.delete(r.index);
-    }
-  }
-
   document.getElementById('upload-viewport').style.display = '';
   document.getElementById('upload-dims').style.display = '';
   document.getElementById('upload-actions').style.display = '';
@@ -1724,19 +1716,13 @@ async function enterBatchMode() {
   updateSliceButton();
 
   const packed = packedBeds.reduce((n, bed) => n + bed.length, 0);
-  let msg = `Packed ${packed} model${packed > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`;
-  if (rejectedModels.size > 0) {
-    const reasons = [...new Set(rejectedModels.values())];
-    msg += ` (${rejectedModels.size} rejected — ${reasons.join(', ')})`;
-  }
-  setStatus(msg);
+  setStatus(`Packed ${packed} model${packed > 1 ? 's' : ''} into ${packedBeds.length} bed${packedBeds.length > 1 ? 's' : ''}`);
 }
 
 function exitBatchMode() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
-  rejectedModels = new Map();
   document.getElementById('upload-bed-nav').style.display = 'none';
   // Reload current individual model
   if (uploadFileId && uploadModels.length > 0) {
@@ -1842,28 +1828,10 @@ function renderModelList() {
         </div>`;
       }
     }
-    // Rejected models — always separate, grouped by reason
-    if (rejectedModels.size > 0) {
-      const byReason = new Map();
-      for (const [idx, reason] of rejectedModels) {
-        if (!byReason.has(reason)) byReason.set(reason, []);
-        byReason.get(reason).push(idx);
-      }
-      for (const [reason, indices] of byReason) {
-        html += `<div class="upload-model-bed-header" style="color:var(--hint)">Rejected — ${reason} (${indices.length})</div>`;
-        for (const idx of indices.sort()) {
-          const checked = checkedModels.has(idx) ? 'checked' : '';
-          html += `<div class="upload-model-item" data-index="${idx}">
-            <input type="checkbox" ${checked} data-cb-index="${idx}">
-            <span class="model-name" style="text-decoration:line-through;color:var(--hint)">${uploadModels[idx]}</span>
-          </div>`;
-        }
-      }
-    }
-    // Unchecked models (excluding rejected, which have their own section)
+    // Unchecked models
     const unchecked = [];
     for (let i = 0; i < uploadModels.length; i++) {
-      if (!checkedModels.has(i) && !rejectedModels.has(i)) unchecked.push(i);
+      if (!checkedModels.has(i) && !packedIndices.has(i)) unchecked.push(i);
     }
     if (unchecked.length > 0) {
       html += `<div class="upload-model-bed-header" style="color:var(--hint)">Unchecked (${unchecked.length})</div>`;
@@ -1944,9 +1912,7 @@ function renderModelList() {
 function updateSliceButton() {
   const btn = document.getElementById('upload-slice-btn');
   if (uploadModels.length > 1) {
-    const sliceable = packedBeds
-      ? [...checkedModels].filter(i => !rejectedModels.has(i)).length
-      : checkedModels.size;
+    const sliceable = checkedModels.size;
     btn.textContent = `Slice (${sliceable}/${uploadModels.length})`;
     btn.disabled = sliceable <= 0;
   } else {
@@ -2107,7 +2073,6 @@ async function clearUpload() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
-  rejectedModels = new Map();
   document.getElementById('upload-model-list').style.display = 'none';
   document.getElementById('upload-bed-nav').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';

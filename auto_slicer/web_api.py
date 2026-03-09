@@ -448,7 +448,7 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
         bed_w = float(active.get("machine_width", "235"))
         bed_d = float(active.get("machine_depth", "235"))
-        beds_packed, rejected_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
+        beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
     except Exception as exc:
         print(f"Pack error: {exc}", flush=True)
         return web.json_response({"error": str(exc)}, status=500)
@@ -469,19 +469,7 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
             })
         beds.append(bed)
 
-    rejected = []
-    for path, reason in rejected_packed:
-        idx = path_to_idx.get(str(path))
-        m = all_models[idx] if idx is not None else {}
-        rejected.append({
-            "index": idx,
-            "name": m.get("rel_path", m.get("name", path.name)),
-            "reason": reason,
-        })
-
-    return web.json_response({
-        "beds": beds, "bed_width": bed_w, "bed_depth": bed_d, "rejected": rejected,
-    })
+    return web.json_response({"beds": beds, "bed_width": bed_w, "bed_depth": bed_d})
 
 
 async def handle_upload_slice(request: web.Request) -> web.Response:
@@ -591,7 +579,7 @@ async def _run_batch(config, dst_paths, overrides, archive_folder):
     bed_w = float(active.get("machine_width", "235"))
     bed_d = float(active.get("machine_depth", "235"))
 
-    beds, _rejected = pack_models(dst_paths, bed_w, bed_d, active)
+    beds = pack_models(dst_paths, bed_w, bed_d, active)
 
     results = []
     for bed_models in beds:

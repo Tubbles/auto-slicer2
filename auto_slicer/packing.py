@@ -86,13 +86,11 @@ def pack_models(
     bed_width: float,
     bed_depth: float,
     settings: dict[str, str],
-) -> tuple[list[list[tuple[Path, float, float]]], list[tuple[Path, str]]]:
+) -> list[list[tuple[Path, float, float]]]:
     """Pack models into bed-sized bins using convex hull nesting.
 
-    Returns (beds, rejected) where:
-    - beds: list of beds, each containing [(stl_path, offset_x, offset_y), ...]
-    - rejected: list of (stl_path, reason) for models that couldn't be packed
-
+    Returns a list of beds, each containing [(stl_path, offset_x, offset_y), ...].
+    Models that cannot be placed are silently omitted.
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
     margin = adhesion_margin(settings) + MODEL_GAP
@@ -122,23 +120,15 @@ def pack_models(
 
     nest(nest_items, bed_box, distance, cfg)
 
-    # Collect results per bin
+    # Collect placed models per bin (skip unplaced: binId < 0)
     bins: dict[int, list[tuple[Path, float, float]]] = {}
-    rejected = []
     for i, item in enumerate(nest_items):
-        path = hulls[i]
         bid = item.binId()
         if bid < 0:
-            w, d = get_xy_bounds(path)
-            if w + margin > bed_width or d + margin > bed_depth:
-                rejected.append((path, "too large for bed"))
-            else:
-                rejected.append((path, "could not fit"))
             continue
         tr = item.translation()
         offset_x = tr.x() / SCALE
         offset_y = tr.y() / SCALE
-        bins.setdefault(bid, []).append((path, offset_x, offset_y))
+        bins.setdefault(bid, []).append((hulls[i], offset_x, offset_y))
 
-    beds = [bins[k] for k in sorted(bins)]
-    return beds, rejected
+    return [bins[k] for k in sorted(bins)]
