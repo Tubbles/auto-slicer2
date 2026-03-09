@@ -1905,6 +1905,15 @@ function renderModelList() {
     });
     item.addEventListener('click', (e) => {
       if (e.target.tagName === 'INPUT') return;
+      if (!checkedModels.has(idx)) {
+        // Clicking a deselected model name selects it
+        checkedModels.add(idx);
+        renderModelList();
+        updateSliceButton();
+        if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
+        else loadModelByIndex(idx);
+        return;
+      }
       if (packedBeds) {
         // In batch mode, tap a model name to jump to its bed
         const bedIdx = parseInt(item.dataset.bed);
