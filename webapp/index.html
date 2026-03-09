@@ -1378,11 +1378,11 @@ function loadSTL(arrayBuffer) {
   if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
 
-  // Center geometry at origin so rotation/scale pivot correctly
+  // Center geometry at its true center so rotation pivots correctly
   geometry.computeBoundingBox();
   const geoCenter = new THREE.Vector3();
   geometry.boundingBox.getCenter(geoCenter);
-  geometry.translate(-geoCenter.x, -geoCenter.y, -geometry.boundingBox.min.z);
+  geometry.translate(-geoCenter.x, -geoCenter.y, -geoCenter.z);
   geometry.computeBoundingBox();
 
   const material = new THREE.MeshPhongMaterial({
@@ -1399,16 +1399,17 @@ function loadSTL(arrayBuffer) {
   // Add bed outline
   addBedOutline();
 
-  // Fit camera to model
-  const size = new THREE.Vector3();
-  geometry.boundingBox.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const hz = size.z / 2;
+  updateTransforms();
+
+  // Fit camera to model after transforms have positioned it
+  const finalBB = new THREE.Box3().setFromObject(modelMesh);
+  const finalSize = new THREE.Vector3();
+  finalBB.getSize(finalSize);
+  const maxDim = Math.max(finalSize.x, finalSize.y, finalSize.z);
+  const hz = finalSize.z / 2;
   camera.position.set(maxDim * 1.5, -maxDim * 1.2, hz + maxDim);
   controls.target.set(0, 0, hz);
   controls.update();
-
-  updateTransforms();
 }
 
 function addBedOutline() {
@@ -1487,10 +1488,17 @@ function updateTransforms() {
     'ZYX',
   );
 
-  // Update transformed bbox
-  if (transformedBoxHelper) scene.remove(transformedBoxHelper);
+  // Re-seat: center XY on bed and place bottom on Z=0
+  modelMesh.position.set(0, 0, 0);
   const transformedBox = new THREE.Box3().setFromObject(modelMesh);
-  transformedBoxHelper = new THREE.Box3Helper(transformedBox, 0xff9933);
+  const tCenter = new THREE.Vector3();
+  transformedBox.getCenter(tCenter);
+  modelMesh.position.set(-tCenter.x, -tCenter.y, -transformedBox.min.z);
+
+  // Update transformed bbox after repositioning
+  if (transformedBoxHelper) scene.remove(transformedBoxHelper);
+  const finalBox = new THREE.Box3().setFromObject(modelMesh);
+  transformedBoxHelper = new THREE.Box3Helper(finalBox, 0xff9933);
   scene.add(transformedBoxHelper);
 
   updateDimsDisplay();
