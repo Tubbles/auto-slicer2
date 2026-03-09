@@ -393,8 +393,6 @@
   }
   .upload-clear-btn:active { opacity: 0.7; }
   .upload-model-list {
-    max-height: 40vh;
-    overflow-y: auto;
     border: 1px solid var(--hint);
     border-radius: 8px;
     margin: 8px 0 0;
@@ -526,12 +524,12 @@
     <button id="bed-next">&gt;</button>
   </div>
   <div class="upload-dims" id="upload-dims" style="display:none"></div>
-  <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
   <div id="upload-result"></div>
   <div class="upload-actions" id="upload-actions" style="display:none">
     <button class="upload-clear-btn" id="upload-clear-btn">Clear</button>
     <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
   </div>
+  <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
 </div>
 
 <div id="settings-container">
