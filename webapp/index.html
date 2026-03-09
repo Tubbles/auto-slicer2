@@ -1692,7 +1692,18 @@ function updateBatchDimsDisplay(bed) {
 }
 
 async function enterBatchMode() {
-  if (!uploadFileId || checkedModels.size === 0) return;
+  if (!uploadFileId) return;
+  if (checkedModels.size === 0) {
+    packedBeds = null;
+    activeBedIndex = 0;
+    clearSceneMeshes();
+    document.getElementById('upload-bed-nav').style.display = 'none';
+    document.getElementById('upload-dims').innerHTML = '';
+    renderModelList();
+    updateSliceButton();
+    setStatus('No models selected');
+    return;
+  }
   setStatus('Computing bed layout...');
   const result = await fetchPackLayout();
   if (!result || !result.beds || result.beds.length === 0) {
