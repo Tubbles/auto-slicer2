@@ -86,21 +86,27 @@ def pack_models(
     bed_width: float,
     bed_depth: float,
     settings: dict[str, str],
+    scale_xy: tuple[float, float] = (1.0, 1.0),
 ) -> list[list[tuple[Path, float, float]]]:
     """Pack models into bed-sized bins using convex hull nesting.
+
+    scale_xy applies (sx, sy) multipliers to hull points before nesting.
+    Use this when STLs haven't been physically scaled yet (e.g. preview).
+    Callers that scale STLs in place before packing should leave this at (1, 1).
 
     Returns a list of beds, each containing [(stl_path, offset_x, offset_y), ...].
     Models that cannot be packed get their own bed at (0, 0) so they remain visible.
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
     margin = adhesion_margin(settings) + MODEL_GAP
+    sx, sy = scale_xy
 
     # Build pynest2d items from convex hulls
     hulls = []
     nest_items = []
     for p in stl_paths:
         hull = get_xy_hull(p)
-        points = [Point(int(x * SCALE), int(y * SCALE)) for x, y in hull]
+        points = [Point(int(x * sx * SCALE), int(y * sy * SCALE)) for x, y in hull]
         nest_items.append(Item(points))
         hulls.append(p)
 

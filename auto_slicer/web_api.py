@@ -448,7 +448,10 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         active = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
         bed_w = float(active.get("machine_width", "235"))
         bed_d = float(active.get("machine_depth", "235"))
-        beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active)
+        # Compute XY scale for preview packing (STLs aren't physically scaled yet)
+        sx, sy, _ = _resolve_scale(config.defaults, overrides)
+        scale_xy = (sx / 100.0, sy / 100.0)
+        beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active, scale_xy)
     except Exception as exc:
         print(f"Pack error: {exc}", flush=True)
         return web.json_response({"error": str(exc)}, status=500)

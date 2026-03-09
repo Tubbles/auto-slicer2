@@ -169,3 +169,17 @@ class TestPackModels:
         assert beds[1][0][0] == huge
         assert beds[1][0][1] == 0.0
         assert beds[1][0][2] == 0.0
+
+    def test_scale_xy_affects_packing(self, tmp_path):
+        models = []
+        for i in range(4):
+            p = tmp_path / f"m{i}.stl"
+            _make_box_stl(p, 50, 50, 10)
+            models.append(p)
+        settings = {"adhesion_type": "none"}
+        # At 100% scale: 4 × 52mm fits on 120mm bed
+        beds_normal = pack_models(models, 120, 120, settings)
+        assert len(beds_normal) == 1
+        # At 200% scale: 4 × 102mm won't fit on 120mm bed
+        beds_scaled = pack_models(models, 120, 120, settings, scale_xy=(2.0, 2.0))
+        assert len(beds_scaled) > 1
