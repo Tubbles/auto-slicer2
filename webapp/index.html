@@ -1336,11 +1336,11 @@ function initScene() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  scene.add(new THREE.AmbientLight(0x999999));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  scene.add(new THREE.AmbientLight(0xcccccc));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(1, 1, 1.5);
   scene.add(dirLight);
-  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.6);
   dirLight2.position.set(-1, -0.5, -1);
   scene.add(dirLight2);
 
@@ -1386,9 +1386,9 @@ function loadSTL(arrayBuffer) {
   geometry.computeBoundingBox();
 
   const material = new THREE.MeshPhongMaterial({
-    color: 0x3399ee,
+    color: 0x44bbff,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.9,
     side: THREE.DoubleSide,
   });
   modelMesh = new THREE.Mesh(geometry, material);
@@ -1595,7 +1595,7 @@ async function loadBedPreview(bedIndex) {
 
   const bed = packedBeds[bedIndex];
   const loader = new STLLoader();
-  const colors = [0x3399ee, 0xee9933, 0x33dd88, 0xaa44ee, 0xee4488, 0x88dd33];
+  const colors = [0x44bbff, 0xffaa33, 0x44ffaa, 0xcc55ff, 0xff5599, 0xaaff44];
   const combined = new THREE.Box3();
 
   for (let i = 0; i < bed.length; i++) {
@@ -1606,7 +1606,7 @@ async function loadBedPreview(bedIndex) {
     const material = new THREE.MeshPhongMaterial({
       color: colors[i % colors.length],
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
       side: THREE.DoubleSide,
     });
     // Center geometry at origin (STL vertices may start at arbitrary positions)
