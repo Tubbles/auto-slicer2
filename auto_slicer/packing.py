@@ -1,15 +1,45 @@
-"""Bin-pack model bounding boxes onto print beds using rectpack.
+"""Bin-pack model convex hulls onto print beds using pynest2d (libnest2d).
 
-Computes XY bounding boxes from STL files, adds adhesion margin,
-and packs into bed-sized bins. Returns per-bed lists of (path, offset_x, offset_y).
+Computes 2D convex hulls from STL XY projections, then uses NFP-based
+nesting for tight packing. Returns per-bed lists of (path, offset_x, offset_y).
 
 Offsets are relative to bed center (CuraEngine convention with center_object=true).
 """
 
 from pathlib import Path
 
-import rectpack
+from pynest2d import Box, Item, NfpConfig, Point, nest
 from stl import mesh
+
+
+# Minimum gap (mm) between models beyond adhesion margin
+MODEL_GAP = 2.0
+
+# pynest2d uses integers internally; we scale mm to micrometers
+SCALE = 1000
+
+
+def _cross(o: tuple, a: tuple, b: tuple) -> float:
+    """Cross product of vectors OA and OB."""
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+
+def convex_hull_2d(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Andrew's monotone chain convex hull algorithm (CCW order)."""
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
 
 
 def get_xy_bounds(stl_path: Path) -> tuple[float, float]:
@@ -20,6 +50,21 @@ def get_xy_bounds(stl_path: Path) -> tuple[float, float]:
     min_y = m.vectors[:, :, 1].min()
     max_y = m.vectors[:, :, 1].max()
     return float(max_x - min_x), float(max_y - min_y)
+
+
+def get_xy_hull(stl_path: Path) -> list[tuple[float, float]]:
+    """Return the 2D convex hull of an STL's XY projection, centered at origin."""
+    m = mesh.Mesh.from_file(str(stl_path))
+    xs = m.vectors[:, :, 0].flatten()
+    ys = m.vectors[:, :, 1].flatten()
+    raw = [(float(x), float(y)) for x, y in zip(xs, ys)]
+    hull = convex_hull_2d(raw)
+    # Center at origin
+    hx = [p[0] for p in hull]
+    hy = [p[1] for p in hull]
+    cx = (min(hx) + max(hx)) / 2
+    cy = (min(hy) + max(hy)) / 2
+    return [(x - cx, y - cy) for x, y in hull]
 
 
 def adhesion_margin(settings: dict[str, str]) -> float:
@@ -36,20 +81,13 @@ def adhesion_margin(settings: dict[str, str]) -> float:
     return 0.0
 
 
-# Minimum gap (mm) between models beyond adhesion margin
-MODEL_GAP = 2.0
-
-# rectpack works with integers; we scale mm to 0.1mm resolution
-SCALE = 10
-
-
 def pack_models(
     stl_paths: list[Path],
     bed_width: float,
     bed_depth: float,
     settings: dict[str, str],
 ) -> tuple[list[list[tuple[Path, float, float]]], list[tuple[Path, str]]]:
-    """Pack models into bed-sized bins.
+    """Pack models into bed-sized bins using convex hull nesting.
 
     Returns (beds, rejected) where:
     - beds: list of beds, each containing [(stl_path, offset_x, offset_y), ...]
@@ -59,59 +97,48 @@ def pack_models(
     """
     margin = adhesion_margin(settings) + MODEL_GAP
 
-    # Compute padded sizes
-    items = []
+    # Build pynest2d items from convex hulls
+    hulls = []
+    nest_items = []
     for p in stl_paths:
-        w, d = get_xy_bounds(p)
-        pw = int((w + margin) * SCALE)
-        pd = int((d + margin) * SCALE)
-        items.append((p, pw, pd, w, d))
+        hull = get_xy_hull(p)
+        points = [Point(int(x * SCALE), int(y * SCALE)) for x, y in hull]
+        nest_items.append(Item(points))
+        hulls.append(p)
 
-    bw = int(bed_width * SCALE)
-    bd = int(bed_depth * SCALE)
+    # Configure nesting: no rotation, center alignment
+    cfg = NfpConfig()
+    cfg.rotations = [0.0]
+    cfg.alignment = NfpConfig.Alignment.CENTER
+    cfg.starting_point = NfpConfig.Alignment.CENTER
 
-    packer = rectpack.newPacker(rotation=False)
-    for i, (_, pw, pd, _, _) in enumerate(items):
-        packer.add_rect(pw, pd, rid=i)
+    # Shrink bin by margin on each side for edge clearance
+    bin_w = int((bed_width - margin) * SCALE)
+    bin_d = int((bed_depth - margin) * SCALE)
+    bed_box = Box(bin_w, bin_d)
 
-    # Add enough bins for all models (worst case: one per model)
-    for _ in range(len(items)):
-        packer.add_bin(bw, bd)
+    # Inter-item distance = margin (adhesion + gap)
+    distance = int(margin * SCALE)
 
-    packer.pack()
+    nest(nest_items, bed_box, distance, cfg)
 
     # Collect results per bin
-    packed_rids = set()
     bins: dict[int, list[tuple[Path, float, float]]] = {}
-    for bin_idx, x, y, pw, pd, rid in packer.rect_list():
-        packed_rids.add(rid)
-        path, _, _, orig_w, orig_d = items[rid]
-        # rectpack places at (x, y) from bin corner (0,0)
-        # Model center in bin coords: x + pw/2, y + pd/2
-        center_x = (x + pw / 2) / SCALE
-        center_y = (y + pd / 2) / SCALE
-        # Convert to bed-center-relative offset
-        offset_x = center_x - bed_width / 2
-        offset_y = center_y - bed_depth / 2
-        bins.setdefault(bin_idx, []).append((path, offset_x, offset_y))
-
-    # Center each bin's model group on the bed
-    for bin_idx in bins:
-        entries = bins[bin_idx]
-        xs = [ox for _, ox, _ in entries]
-        ys = [oy for _, _, oy in entries]
-        shift_x = (min(xs) + max(xs)) / 2
-        shift_y = (min(ys) + max(ys)) / 2
-        bins[bin_idx] = [(p, ox - shift_x, oy - shift_y) for p, ox, oy in entries]
-
-    # Identify rejected models and determine reason
     rejected = []
-    for i, (p, pw, pd, w, d) in enumerate(items):
-        if i not in packed_rids:
-            if pw > bw or pd > bd:
-                rejected.append((p, "too large for bed"))
+    for i, item in enumerate(nest_items):
+        path = hulls[i]
+        bid = item.binId()
+        if bid < 0:
+            w, d = get_xy_bounds(path)
+            if w + margin > bed_width or d + margin > bed_depth:
+                rejected.append((path, "too large for bed"))
             else:
-                rejected.append((p, "could not fit"))
+                rejected.append((path, "could not fit"))
+            continue
+        tr = item.translation()
+        offset_x = tr.x() / SCALE
+        offset_y = tr.y() / SCALE
+        bins.setdefault(bid, []).append((path, offset_x, offset_y))
 
     beds = [bins[k] for k in sorted(bins)]
     return beds, rejected

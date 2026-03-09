@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from stl import mesh
 
-from auto_slicer.packing import MODEL_GAP, adhesion_margin, get_xy_bounds, pack_models
+from auto_slicer.packing import MODEL_GAP, adhesion_margin, convex_hull_2d, get_xy_bounds, get_xy_hull, pack_models
 
 
 def _make_box_stl(path: Path, w: float, d: float, h: float) -> None:
@@ -29,6 +29,36 @@ def _make_box_stl(path: Path, w: float, d: float, h: float) -> None:
         for j in range(3):
             m.vectors[i][j] = vertices[f[j]]
     m.save(str(path))
+
+
+class TestConvexHull2d:
+    def test_square(self):
+        pts = [(0, 0), (1, 0), (1, 1), (0, 1), (0.5, 0.5)]
+        hull = convex_hull_2d(pts)
+        assert len(hull) == 4  # interior point excluded
+
+    def test_triangle(self):
+        pts = [(0, 0), (4, 0), (2, 3)]
+        hull = convex_hull_2d(pts)
+        assert len(hull) == 3
+
+    def test_collinear(self):
+        pts = [(0, 0), (1, 0), (2, 0)]
+        hull = convex_hull_2d(pts)
+        assert len(hull) == 2
+
+
+class TestGetXyHull:
+    def test_box_hull_centered(self, tmp_path):
+        stl = tmp_path / "box.stl"
+        _make_box_stl(stl, 30, 50, 10)
+        hull = get_xy_hull(stl)
+        # Hull of a box is 4 corners, centered at origin
+        assert len(hull) == 4
+        xs = [p[0] for p in hull]
+        ys = [p[1] for p in hull]
+        assert abs(sum(xs) / len(xs)) < 0.01
+        assert abs(sum(ys) / len(ys)) < 0.01
 
 
 class TestGetXyBounds:
