@@ -459,7 +459,10 @@ def slice_batch(
     """Slice multiple models on one bed and return (success, message, archive_path, stats).
 
     bed_models is [(stl_path, offset_x, offset_y), ...] from packing.
+    Rotation is ignored — pack layout was computed from unrotated hulls.
     """
+    # Strip rotation so it doesn't conflict with packed positions
+    overrides = {k: v for k, v in overrides.items() if k not in ROTATION_KEYS}
     active_settings = resolve_settings(config.registry, config.defaults, overrides, config.forced_keys)
 
     unknown = find_unknown_gcode_tokens(active_settings)

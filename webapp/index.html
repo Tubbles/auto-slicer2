@@ -1619,16 +1619,13 @@ async function loadBedPreview(bedIndex) {
 
     const mesh = new THREE.Mesh(geometry, material);
 
-    // Apply transforms (scale + rotation)
+    // Apply scale only — rotation is ignored in batch mode because the
+    // pack layout was computed from unrotated convex hulls
     const masterScale = getTransformVal('scale', 100);
     const sx = getTransformVal('scale_x', masterScale);
     const sy = getTransformVal('scale_y', masterScale);
     const sz = getTransformVal('scale_z', masterScale);
-    const rx = getTransformVal('rotation_x', 0);
-    const ry = getTransformVal('rotation_y', 0);
-    const rz = getTransformVal('rotation_z', 0);
     mesh.scale.set(sx / 100, sy / 100, sz / 100);
-    mesh.rotation.set(rx * Math.PI / 180, ry * Math.PI / 180, rz * Math.PI / 180, 'ZYX');
 
     // Position at packed offset (offset is relative to bed center, which is scene origin)
     mesh.position.set(item.offset_x, item.offset_y, 0);
