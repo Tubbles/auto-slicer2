@@ -1283,7 +1283,6 @@ let scene, camera, renderer, controls;
 let modelMeshes = [];  // array of THREE.Mesh for batch mode
 let modelMesh = null;  // single mesh for individual mode
 let originalGeometry = null;
-let originalBoxHelper = null;
 let transformedBoxHelper = null;
 let bedBox = null;
 let originWidget = null;
@@ -1376,9 +1375,15 @@ function loadSTL(arrayBuffer) {
     modelMesh.geometry.dispose();
     modelMesh.material.dispose();
   }
-  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
   if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
+
+  // Center geometry at origin so rotation/scale pivot correctly
+  geometry.computeBoundingBox();
+  const geoCenter = new THREE.Vector3();
+  geometry.boundingBox.getCenter(geoCenter);
+  geometry.translate(-geoCenter.x, -geoCenter.y, -geometry.boundingBox.min.z);
+  geometry.computeBoundingBox();
 
   const material = new THREE.MeshPhongMaterial({
     color: 0x4488cc,
@@ -1390,24 +1395,17 @@ function loadSTL(arrayBuffer) {
   scene.add(modelMesh);
 
   originalGeometry = geometry;
-  geometry.computeBoundingBox();
-
-  // Original bbox wireframe (green)
-  const origBox = geometry.boundingBox.clone();
-  originalBoxHelper = new THREE.Box3Helper(origBox, 0x44aa44);
-  scene.add(originalBoxHelper);
 
   // Add bed outline
   addBedOutline();
 
   // Fit camera to model
-  const center = new THREE.Vector3();
-  origBox.getCenter(center);
   const size = new THREE.Vector3();
-  origBox.getSize(size);
+  geometry.boundingBox.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z);
-  camera.position.set(center.x + maxDim * 1.5, center.y - maxDim * 1.2, center.z + maxDim);
-  controls.target.copy(center);
+  const hz = size.z / 2;
+  camera.position.set(maxDim * 1.5, -maxDim * 1.2, hz + maxDim);
+  controls.target.set(0, 0, hz);
   controls.update();
 
   updateTransforms();
@@ -1548,7 +1546,6 @@ function clearSceneMeshes() {
   }
   modelMeshes = [];
   originalGeometry = null;
-  if (originalBoxHelper) { scene.remove(originalBoxHelper); originalBoxHelper = null; }
   if (transformedBoxHelper) { scene.remove(transformedBoxHelper); transformedBoxHelper = null; }
   if (bedBox) { scene.remove(bedBox); bedBox = null; }
   if (originWidget) { scene.remove(originWidget); originWidget = null; }
