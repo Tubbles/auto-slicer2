@@ -87,14 +87,16 @@ def pack_models(
     bed_depth: float,
     settings: dict[str, str],
     scale_xy: tuple[float, float] = (1.0, 1.0),
-) -> list[list[tuple[Path, float, float]]]:
+) -> tuple[list[list[tuple[Path, float, float]]], set[Path]]:
     """Pack models into bed-sized bins using convex hull nesting.
 
     scale_xy applies (sx, sy) multipliers to hull points before nesting.
     Use this when STLs haven't been physically scaled yet (e.g. preview).
     Callers that scale STLs in place before packing should leave this at (1, 1).
 
-    Returns a list of beds, each containing [(stl_path, offset_x, offset_y), ...].
+    Returns (beds, overflow) where:
+    - beds: list of beds, each containing [(stl_path, offset_x, offset_y), ...]
+    - overflow: set of paths that couldn't be packed (placed at (0,0) on own bed)
     Models that cannot be packed get their own bed at (0, 0) so they remain visible.
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
@@ -145,4 +147,4 @@ def pack_models(
         bins[next_bin] = [(p, 0.0, 0.0)]
         next_bin += 1
 
-    return [bins[k] for k in sorted(bins)]
+    return [bins[k] for k in sorted(bins)], set(unplaced)

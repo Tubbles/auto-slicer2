@@ -1295,6 +1295,7 @@ let animating = false;
 let packedBeds = null;  // array of beds, each bed is [{index, name, offset_x, offset_y}, ...]
 let activeBedIndex = 0;
 let stlCache = {};  // index -> ArrayBuffer, avoid re-fetching
+let overflowModels = new Set();  // indices of models that don't fit the bed
 
 
 
@@ -1691,6 +1692,7 @@ async function enterBatchMode() {
   if (checkedModels.size === 0) {
     packedBeds = null;
     activeBedIndex = 0;
+    overflowModels = new Set();
     clearSceneMeshes();
     document.getElementById('upload-bed-nav').style.display = 'none';
     document.getElementById('upload-dims').innerHTML = '';
@@ -1714,6 +1716,12 @@ async function enterBatchMode() {
   packedBeds = result.beds;
   activeBedIndex = 0;
 
+  // Track models that don't fit the bed
+  overflowModels = new Set();
+  for (const bed of packedBeds) for (const item of bed) {
+    if (item.overflow) overflowModels.add(item.index);
+  }
+
   document.getElementById('upload-viewport').style.display = '';
   document.getElementById('upload-dims').style.display = '';
   document.getElementById('upload-actions').style.display = '';
@@ -1729,6 +1737,7 @@ function exitBatchMode() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
+  overflowModels = new Set();
   document.getElementById('upload-bed-nav').style.display = 'none';
   // Reload current individual model
   if (uploadFileId && uploadModels.length > 0) {
@@ -1828,9 +1837,10 @@ function renderModelList() {
       html += `<div class="upload-model-bed-header${active}" data-bed="${b}">Bed ${b + 1} (${bed.length} model${bed.length > 1 ? 's' : ''})</div>`;
       for (const item of bed) {
         packedIndices.add(item.index);
+        const warn = overflowModels.has(item.index) ? '<span style="color:#e8a820" title="Does not fit on bed">\u26a0</span> ' : '';
         html += `<div class="upload-model-item" data-index="${item.index}" data-bed="${b}">
           <input type="checkbox" checked data-cb-index="${item.index}">
-          <span class="model-name">${item.name}</span>
+          <span class="model-name">${warn}${item.name}</span>
         </div>`;
       }
     }
@@ -2088,6 +2098,7 @@ async function clearUpload() {
   packedBeds = null;
   activeBedIndex = 0;
   stlCache = {};
+  overflowModels = new Set();
   document.getElementById('upload-model-list').style.display = 'none';
   document.getElementById('upload-bed-nav').style.display = 'none';
   document.getElementById('upload-viewport').style.display = 'none';

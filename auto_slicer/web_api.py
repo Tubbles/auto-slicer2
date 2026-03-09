@@ -451,25 +451,29 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         # Compute XY scale for preview packing (STLs aren't physically scaled yet)
         sx, sy, _ = _resolve_scale(config.defaults, overrides)
         scale_xy = (sx / 100.0, sy / 100.0)
-        beds_packed = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active, scale_xy)
+        beds_packed, overflow = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active, scale_xy)
     except Exception as exc:
         print(f"Pack error: {exc}", flush=True)
         return web.json_response({"error": str(exc)}, status=500)
 
     # Map paths back to model indices
     path_to_idx = {str(Path(all_models[i]["stl_path"])): i for i in indices}
+    overflow_strs = {str(p) for p in overflow}
     beds = []
     for bed_models in beds_packed:
         bed = []
         for path, ox, oy in bed_models:
             idx = path_to_idx.get(str(path))
             m = all_models[idx] if idx is not None else {}
-            bed.append({
+            item = {
                 "index": idx,
                 "name": m.get("rel_path", m.get("name", path.name)),
                 "offset_x": round(ox, 2),
                 "offset_y": round(oy, 2),
-            })
+            }
+            if str(path) in overflow_strs:
+                item["overflow"] = True
+            bed.append(item)
         beds.append(bed)
 
     return web.json_response({"beds": beds, "bed_width": bed_w, "bed_depth": bed_d})
@@ -582,7 +586,7 @@ async def _run_batch(config, dst_paths, overrides, archive_folder):
     bed_w = float(active.get("machine_width", "235"))
     bed_d = float(active.get("machine_depth", "235"))
 
-    beds = pack_models(dst_paths, bed_w, bed_d, active)
+    beds, _overflow = pack_models(dst_paths, bed_w, bed_d, active)
 
     results = []
     for bed_models in beds:
