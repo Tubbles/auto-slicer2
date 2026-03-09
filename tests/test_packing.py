@@ -156,11 +156,16 @@ class TestPackModels:
         beds_brim = pack_models(models, 210, 210, {"adhesion_type": "brim", "brim_width": "20"})
         assert len(beds_brim) >= len(beds_none)
 
-    def test_oversized_model_omitted(self, tmp_path):
+    def test_oversized_model_gets_own_bed(self, tmp_path):
         small = tmp_path / "small.stl"
         huge = tmp_path / "huge.stl"
         _make_box_stl(small, 50, 50, 10)
         _make_box_stl(huge, 300, 300, 10)  # larger than 235mm bed
         beds = pack_models([small, huge], 235, 235, {"adhesion_type": "none"})
-        assert len(beds) == 1
-        assert len(beds[0]) == 1  # only the small one packed
+        assert len(beds) == 2
+        assert len(beds[0]) == 1  # small one packed normally
+        # Oversized model gets its own bed at (0, 0)
+        assert len(beds[1]) == 1
+        assert beds[1][0][0] == huge
+        assert beds[1][0][1] == 0.0
+        assert beds[1][0][2] == 0.0

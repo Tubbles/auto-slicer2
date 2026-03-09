@@ -90,7 +90,7 @@ def pack_models(
     """Pack models into bed-sized bins using convex hull nesting.
 
     Returns a list of beds, each containing [(stl_path, offset_x, offset_y), ...].
-    Models that cannot be placed are silently omitted.
+    Models that cannot be packed get their own bed at (0, 0) so they remain visible.
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
     margin = adhesion_margin(settings) + MODEL_GAP
@@ -120,15 +120,23 @@ def pack_models(
 
     nest(nest_items, bed_box, distance, cfg)
 
-    # Collect placed models per bin (skip unplaced: binId < 0)
+    # Collect placed models per bin
     bins: dict[int, list[tuple[Path, float, float]]] = {}
+    unplaced = []
     for i, item in enumerate(nest_items):
         bid = item.binId()
         if bid < 0:
+            unplaced.append(hulls[i])
             continue
         tr = item.translation()
         offset_x = tr.x() / SCALE
         offset_y = tr.y() / SCALE
         bins.setdefault(bid, []).append((hulls[i], offset_x, offset_y))
+
+    # Give each unplaced model its own bed at (0, 0) so it's still visible
+    next_bin = (max(bins) + 1) if bins else 0
+    for p in unplaced:
+        bins[next_bin] = [(p, 0.0, 0.0)]
+        next_bin += 1
 
     return [bins[k] for k in sorted(bins)]
