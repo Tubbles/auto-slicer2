@@ -11,7 +11,7 @@ from .settings_eval import _SAFE_BUILTINS, evaluate_expressions
 from .settings_registry import SettingsRegistry
 from .stl_transform import euler_to_rotation_matrix, needs_rotation, needs_scaling, scale_stl
 from .threemf import convert_3mf_to_stl
-from .thumbnails import find_header_end, generate_thumbnails, inject_thumbnails
+from .thumbnails import find_header_end, generate_batch_thumbnails, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 ROTATION_KEYS = {"rotation_x", "rotation_y", "rotation_z"}
@@ -498,6 +498,14 @@ def slice_batch(
             stats = extract_stats(header)
             if header:
                 patch_gcode_header(gcode_path, header)
+
+            try:
+                thumb_comments = generate_batch_thumbnails(bed_models, bed_models[0][0].parent)
+                if thumb_comments:
+                    inject_thumbnails(gcode_path, thumb_comments)
+                    print("[Thumbnail] Injected batch thumbnails into gcode")
+            except Exception as e:
+                print(f"[Thumbnail] Skipped: {e}")
 
             presets = load_presets()
             inject_metadata(gcode_path, overrides, presets)

@@ -13,8 +13,7 @@ def render_stl_thumbnail(
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> bool:
     """Render an STL file to a PNG thumbnail using OpenSCAD."""
-    rx, ry, rz = rotation
-    scad_expr = f'rotate([{rx},{ry},{rz}]) import("{stl_path}");'
+    scad_expr = _build_scad_expr(stl_path, rotation)
     cmd = [
         "xvfb-run", "--auto-servernum",
         "openscad",
@@ -30,6 +29,57 @@ def render_stl_thumbnail(
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
+
+
+def _build_scad_expr(stl_path: Path, rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> str:
+    """Build an OpenSCAD expression for a single model with rotation."""
+    rx, ry, rz = rotation
+    return f'rotate([{rx},{ry},{rz}]) import("{stl_path}");'
+
+
+def _build_batch_scad_expr(models: list[tuple[Path, float, float]]) -> str:
+    """Build an OpenSCAD expression for multiple models at packed offsets."""
+    parts = []
+    for stl_path, ox, oy in models:
+        parts.append(f'translate([{ox},{oy},0]) import("{stl_path}");')
+    return " ".join(parts)
+
+
+def render_batch_thumbnail(
+    models: list[tuple[Path, float, float]],
+    output_path: Path, width: int, height: int,
+) -> bool:
+    """Render multiple STL files at packed offsets to a PNG thumbnail."""
+    scad_expr = _build_batch_scad_expr(models)
+    cmd = [
+        "xvfb-run", "--auto-servernum",
+        "openscad",
+        "-o", str(output_path),
+        f"--imgsize={width},{height}",
+        "--autocenter",
+        "--viewall",
+        "-D", scad_expr,
+        "/dev/null",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=OPENSCAD_TIMEOUT)
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def generate_batch_thumbnails(
+    models: list[tuple[Path, float, float]], tmp_dir: Path,
+) -> str:
+    """Render and encode batch thumbnails for all sizes."""
+    blocks = []
+    for width, height in THUMBNAIL_SIZES:
+        png_path = tmp_dir / f"thumb_{width}x{height}.png"
+        if not render_batch_thumbnail(models, png_path, width, height):
+            print(f"[Thumbnail] Failed to render batch {width}x{height}")
+            return ""
+        blocks.append(encode_thumbnail(png_path, width, height))
+    return ";\n\n;\n".join(blocks)
 
 
 def encode_thumbnail(png_path: Path, width: int, height: int) -> str:

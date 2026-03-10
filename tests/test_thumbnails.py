@@ -5,10 +5,14 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from auto_slicer.thumbnails import (
+    _build_batch_scad_expr,
+    _build_scad_expr,
     encode_thumbnail,
     find_header_end,
+    generate_batch_thumbnails,
     inject_thumbnails,
     generate_thumbnails,
+    render_batch_thumbnail,
     render_stl_thumbnail,
     BASE64_LINE_WIDTH,
 )
@@ -165,3 +169,47 @@ def test_render_stl_thumbnail_timeout(tmp_path):
         success = render_stl_thumbnail(stl_path, output_path, 32, 32)
 
     assert success is False
+
+
+def test_build_scad_expr(tmp_path):
+    stl = tmp_path / "model.stl"
+    assert _build_scad_expr(stl) == f'rotate([0.0,0.0,0.0]) import("{stl}");'
+    assert "rotate([45.0,0.0,90.0])" in _build_scad_expr(stl, (45.0, 0.0, 90.0))
+
+
+def test_build_batch_scad_expr(tmp_path):
+    a = tmp_path / "a.stl"
+    b = tmp_path / "b.stl"
+    models = [(a, 10.0, 20.0), (b, -5.0, 0.0)]
+    expr = _build_batch_scad_expr(models)
+    assert f'translate([10.0,20.0,0]) import("{a}");' in expr
+    assert f'translate([-5.0,0.0,0]) import("{b}");' in expr
+
+
+def test_render_batch_thumbnail_command(tmp_path):
+    a = tmp_path / "a.stl"
+    b = tmp_path / "b.stl"
+    output_path = tmp_path / "thumb.png"
+    models = [(a, 10.0, 20.0), (b, -5.0, 0.0)]
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+
+    with patch("auto_slicer.thumbnails.subprocess.run", return_value=mock_result) as mock_run:
+        success = render_batch_thumbnail(models, output_path, 300, 300)
+
+    assert success is True
+    cmd = mock_run.call_args[0][0]
+    scad_arg = [a for a in cmd if "translate" in a][0]
+    assert "translate([10.0,20.0,0])" in scad_arg
+    assert "translate([-5.0,0.0,0])" in scad_arg
+
+
+def test_generate_batch_thumbnails_openscad_missing(tmp_path):
+    a = tmp_path / "a.stl"
+    models = [(a, 0.0, 0.0)]
+
+    with patch("auto_slicer.thumbnails.subprocess.run", side_effect=FileNotFoundError):
+        result = generate_batch_thumbnails(models, tmp_path)
+
+    assert result == ""
