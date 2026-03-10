@@ -8,8 +8,13 @@ OPENSCAD_TIMEOUT = 30
 BASE64_LINE_WIDTH = 78
 
 
-def render_stl_thumbnail(stl_path: Path, output_path: Path, width: int, height: int) -> bool:
+def render_stl_thumbnail(
+    stl_path: Path, output_path: Path, width: int, height: int,
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> bool:
     """Render an STL file to a PNG thumbnail using OpenSCAD."""
+    rx, ry, rz = rotation
+    scad_expr = f'rotate([{rx},{ry},{rz}]) import("{stl_path}");'
     cmd = [
         "xvfb-run", "--auto-servernum",
         "openscad",
@@ -17,7 +22,7 @@ def render_stl_thumbnail(stl_path: Path, output_path: Path, width: int, height: 
         f"--imgsize={width},{height}",
         "--autocenter",
         "--viewall",
-        "-D", f'import("{stl_path}");',
+        "-D", scad_expr,
         "/dev/null",
     ]
     try:
@@ -37,12 +42,15 @@ def encode_thumbnail(png_path: Path, width: int, height: int) -> str:
     return f"{header}\n{body}\n{footer}\n"
 
 
-def generate_thumbnails(stl_path: Path, tmp_dir: Path) -> str:
+def generate_thumbnails(
+    stl_path: Path, tmp_dir: Path,
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> str:
     """Render and encode thumbnails for all sizes. Returns gcode comments or empty string."""
     blocks = []
     for width, height in THUMBNAIL_SIZES:
         png_path = tmp_dir / f"thumb_{width}x{height}.png"
-        if not render_stl_thumbnail(stl_path, png_path, width, height):
+        if not render_stl_thumbnail(stl_path, png_path, width, height, rotation):
             print(f"[Thumbnail] Failed to render {width}x{height}")
             return ""
         blocks.append(encode_thumbnail(png_path, width, height))

@@ -410,7 +410,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
                 print(f"[Header] Patched gcode header with {len(header)} values")
 
             try:
-                thumb_comments = generate_thumbnails(stl_path, stl_path.parent)
+                thumb_comments = generate_thumbnails(stl_path, stl_path.parent, (rx, ry, rz))
                 if thumb_comments:
                     inject_thumbnails(gcode_path, thumb_comments)
                     print("[Thumbnail] Injected thumbnails into gcode")

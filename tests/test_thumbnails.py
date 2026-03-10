@@ -133,8 +133,27 @@ def test_render_stl_thumbnail_command(tmp_path):
     assert "--imgsize=300,300" in cmd
     assert "--autocenter" in cmd
     assert "--viewall" in cmd
-    assert f'import("{stl_path}");' in cmd
+    # Default rotation (0,0,0) wraps import in rotate()
+    scad_arg = [a for a in cmd if "import" in a][0]
+    assert f'import("{stl_path}")' in scad_arg
+    assert "rotate(" in scad_arg
     assert "/dev/null" in cmd
+
+
+def test_render_stl_thumbnail_with_rotation(tmp_path):
+    stl_path = tmp_path / "model.stl"
+    output_path = tmp_path / "thumb.png"
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+
+    with patch("auto_slicer.thumbnails.subprocess.run", return_value=mock_result) as mock_run:
+        success = render_stl_thumbnail(stl_path, output_path, 300, 300, rotation=(90.0, 0.0, 45.0))
+
+    assert success is True
+    cmd = mock_run.call_args[0][0]
+    scad_arg = [a for a in cmd if "import" in a][0]
+    assert "rotate([90.0,0.0,45.0])" in scad_arg
 
 
 def test_render_stl_thumbnail_timeout(tmp_path):
