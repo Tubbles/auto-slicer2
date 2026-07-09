@@ -218,8 +218,6 @@ PRESETS: dict[str, dict] = {
             "speed_print": "50",
         },
     },
-    # Material presets all set retraction keys so switching materials
-    # restores them (preset apply merges overrides, never clears them)
     "PLA": {
         "description": "Temperatures and settings for PLA filament",
         "settings": {
@@ -229,8 +227,6 @@ PRESETS: dict[str, dict] = {
             "cool_fan_speed_min": "100",
             "cool_fan_speed_max": "100",
             "speed_print": "60",
-            "retraction_amount": "4",
-            "retraction_speed": "25",
         },
     },
     "PETG": {
@@ -242,12 +238,13 @@ PRESETS: dict[str, dict] = {
             "cool_fan_speed_min": "50",
             "cool_fan_speed_max": "50",
             "speed_print": "45",
-            "retraction_amount": "4",
-            "retraction_speed": "25",
         },
     },
     # Slow speeds and gentle retraction to avoid buckling flexible
-    # filament in the bowden tube; reduced fan for layer adhesion
+    # filament in the bowden tube; reduced fan for layer adhesion.
+    # NOTE: preset apply merges overrides without clearing, so the
+    # retraction overrides stick when switching back to PLA/PETG —
+    # clear them manually in the Modified tab after a TPU session
     "TPU": {
         "description": "Temperatures and settings for TPU filament (bowden)",
         "settings": {
