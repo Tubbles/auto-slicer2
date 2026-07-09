@@ -453,6 +453,22 @@ class TestPresets:
         fine_lh = float(presets["fine"]["settings"]["layer_height"])
         assert draft_lh > fine_lh
 
+    def test_material_presets_all_set_retraction(self):
+        """Preset apply merges overrides without clearing, so every material
+        preset must set retraction keys or TPU's would stick after switching."""
+        presets = load_presets()
+        for name in ("PLA", "PETG", "TPU"):
+            settings = presets[name]["settings"]
+            assert "retraction_amount" in settings, name
+            assert "retraction_speed" in settings, name
+
+    def test_tpu_retraction_within_all_metal_cap(self, config):
+        """TPU preset retraction must respect the 4mm all-metal heat break cap."""
+        presets = load_presets()
+        defn = config.registry.get("retraction_amount")
+        result = validate(defn, presets["TPU"]["settings"]["retraction_amount"])
+        assert result.ok
+
 
 # --- Bounds override tests ---
 
