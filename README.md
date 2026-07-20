@@ -2,9 +2,9 @@
 
 Telegram bot that slices STL/3MF files using CuraEngine. Users send model files to the bot or upload via the Mini App, configure slicer settings, and receive notifications when slicing completes.
 
-## Mini App live updates
+## Mini App preview updates
 
-The Upload tab preview reacts immediately to changes in the Model settings category, even before they are applied: scale and rotation update the 3D mesh client-side, and changing Scale, Repeat, or Batch Models recomputes the bed layout right away (the pending values are sent along with the layout request). All other settings, such as adhesion type or machine bed size, affect the layout preview only after they are applied.
+The Upload tab preview always reflects applied settings, so it matches exactly what Slice will produce. Editing a setting does not touch the preview; tapping Apply refreshes it once when the change affects the model transforms or bed layout (Scale, Rotation, Repeat, Batch Models).
 
 Slicing always uses applied settings. Pending (unapplied) changes are never part of a slice job, so tap Apply before Slice.
 

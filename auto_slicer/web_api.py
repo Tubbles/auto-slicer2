@@ -279,10 +279,6 @@ UPLOAD_TTL = 1800  # 30 minutes
 ALLOWED_EXTENSIONS = {".stl", ".3mf", ".zip"}
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
 
-# Settings the pack preview accepts from the request body so the frontend can
-# preview pending (not yet applied) values. Slicing always uses saved overrides.
-PACK_PREVIEW_KEYS = {"batch_models", "repeat", "scale", "scale_x", "scale_y", "scale_z"}
-
 
 def _cleanup_uploads(uploads: dict) -> None:
     """Remove uploads older than UPLOAD_TTL and delete their temp dirs."""
@@ -445,12 +441,6 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
             return web.json_response({"error": "invalid indices"}, status=400)
     else:
         indices = list(range(len(all_models)))
-
-    # Pending (unapplied) frontend values win over saved overrides for the preview
-    client_settings = body.get("settings")
-    if isinstance(client_settings, dict):
-        pending = {k: str(v) for k, v in client_settings.items() if k in PACK_PREVIEW_KEYS}
-        overrides = {**overrides, **pending}
 
     if not indices:
         return web.json_response({"beds": []})

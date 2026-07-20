@@ -960,6 +960,13 @@ function buildResetBtn(key) {
 
 const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z', 'batch_models', 'repeat']);
 
+// Called after Apply: refresh the upload preview once if any applied
+// change affects it. Editing (pending) changes never touch the preview.
+function refreshUploadPreview(changedKeys) {
+  if (!changedKeys.some(k => UPLOAD_TRANSFORM_KEYS.has(k))) return;
+  if (window._updateUploadTransforms) window._updateUploadTransforms();
+}
+
 function onChange(key, value) {
   pendingChanges[key] = value;
   syncGlobals();
@@ -973,9 +980,6 @@ function onChange(key, value) {
   }
   updateMainButton();
   scheduleRecompute();
-  if (UPLOAD_TRANSFORM_KEYS.has(key) && window._updateUploadTransforms) {
-    window._updateUploadTransforms();
-  }
 }
 
 function onReset(key) {
@@ -988,9 +992,6 @@ function onReset(key) {
   render();
   haptic();
   scheduleRecompute();
-  if (UPLOAD_TRANSFORM_KEYS.has(key) && window._updateUploadTransforms) {
-    window._updateUploadTransforms();
-  }
 }
 
 function haptic() {
@@ -1203,6 +1204,7 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
       }
       render();
       recompute();
+      refreshUploadPreview(appliedKeys);
     } else {
       for (const k of appliedKeys) overrides[k] = result.applied[k];
       for (const k of toRemove) delete overrides[k];
@@ -1210,6 +1212,7 @@ if (WebApp && WebApp.MainButton) WebApp.MainButton.onClick(async () => {
       syncGlobals();
       render();
       recompute();
+      refreshUploadPreview([...appliedKeys, ...toRemove]);
 
       let msg = `Applied ${appliedKeys.length} setting${appliedKeys.length !== 1 ? 's' : ''}`;
       if (warningKeys.length > 0) {
@@ -1306,23 +1309,21 @@ function weblog(msg) {
   }).catch(() => {});
 }
 
+// Preview helpers read applied (saved) settings only — pending changes
+// affect the preview after Apply, so it always matches what Slice produces.
 function isBatchMode() {
-  const pc = window.pendingChanges || {};
   const ov = window.overrides || {};
   const defs = (window.registry && window.registry.defaults) || {};
-  const raw = (pc['batch_models'] !== undefined && pc['batch_models'] !== null) ? pc['batch_models']
-    : (ov['batch_models'] !== undefined ? ov['batch_models']
-    : (defs['batch_models'] !== undefined ? defs['batch_models'] : false));
+  const raw = ov['batch_models'] !== undefined ? ov['batch_models']
+    : (defs['batch_models'] !== undefined ? defs['batch_models'] : false);
   return raw === true || raw === 'true' || raw === 'True';
 }
 
 function repeatCount() {
-  const pc = window.pendingChanges || {};
   const ov = window.overrides || {};
   const defs = (window.registry && window.registry.defaults) || {};
-  const raw = (pc['repeat'] !== undefined && pc['repeat'] !== null) ? pc['repeat']
-    : (ov['repeat'] !== undefined ? ov['repeat']
-    : (defs['repeat'] !== undefined ? defs['repeat'] : 1));
+  const raw = ov['repeat'] !== undefined ? ov['repeat']
+    : (defs['repeat'] !== undefined ? defs['repeat'] : 1);
   const n = parseInt(raw, 10);
   return isNaN(n) || n < 1 ? 1 : n;
 }
@@ -1475,12 +1476,9 @@ function getBedDims() {
 }
 
 function getTransformVal(key, fallback) {
-  const pc = window.pendingChanges || {};
   const ov = window.overrides || {};
   const defs = (window.registry && window.registry.defaults) || {};
-  if (key in pc && pc[key] !== null) return parseFloat(pc[key]);
-  // pendingChanges[key] === null means "revert to default", skip overrides
-  if (!(key in pc) && key in ov) return parseFloat(ov[key]);
+  if (key in ov) return parseFloat(ov[key]);
   if (key in defs) return parseFloat(defs[key]);
   return fallback;
 }
@@ -1590,16 +1588,6 @@ async function fetchPackLayout() {
   if (!uploadFileId) return null;
   const indices = [...checkedModels].sort();
   if (indices.length === 0) return null;
-  // Send effective (pending-inclusive) values so the layout previews
-  // changes that have not been applied yet. Slicing uses applied settings.
-  const masterScale = getTransformVal('scale', 100);
-  const settings = {
-    batch_models: isBatchMode() ? 'true' : 'false',
-    repeat: String(repeatCount()),
-    scale: String(masterScale),
-    scale_x: String(getTransformVal('scale_x', masterScale)),
-    scale_y: String(getTransformVal('scale_y', masterScale)),
-  };
   try {
     const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/pack`, {
       method: 'POST',
@@ -1607,7 +1595,7 @@ async function fetchPackLayout() {
         'Authorization': 'Bearer ' + TOKEN,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ indices, settings }),
+      body: JSON.stringify({ indices }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -2185,7 +2173,8 @@ document.getElementById('bed-next').addEventListener('click', () => {
   }
 });
 
-// Expose for onChange hook — handle batch mode toggle and transform changes
+// Called via refreshUploadPreview() after Apply — handle batch/repeat
+// toggles and transform changes from the newly saved settings
 window._updateUploadTransforms = function() {
   if (!uploadFileId) return;
   const batch = usePackedPreview();

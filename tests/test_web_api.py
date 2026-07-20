@@ -844,7 +844,8 @@ class TestUploadPackEndpoint:
             "machine_width": "235", "machine_depth": "235",
             "adhesion_type": "skirt", "skirt_distance": "3",
         })
-        self.app = create_web_app(config, {}, tokens={})
+        self.user_settings = {}
+        self.app = create_web_app(config, self.user_settings, tokens={})
 
     @pytest.mark.asyncio
     async def test_pack_single_model(self, aiohttp_client):
@@ -874,16 +875,13 @@ class TestUploadPackEndpoint:
         return (await resp.json())["file_id"]
 
     @pytest.mark.asyncio
-    async def test_pack_repeat_from_body(self, aiohttp_client):
-        """Pending repeat sent in the body is previewed without saved overrides."""
+    async def test_pack_repeat_from_saved_settings(self, aiohttp_client):
+        """The pack layout honors the user's saved repeat setting."""
         client = await aiohttp_client(self.app)
         token = _add_token(self.app, 42)
+        self.user_settings[42] = {"repeat": "3"}
         file_id = await self._upload(client, token, _make_stl_bytes(), "model.stl")
-        resp = await client.post(
-            f"/api/upload/{file_id}/pack",
-            json={"settings": {"repeat": "3"}},
-            headers=_bearer(token),
-        )
+        resp = await client.post(f"/api/upload/{file_id}/pack", json={}, headers=_bearer(token))
         assert resp.status == 200
         body = await resp.json()
         assert len(body["beds"]) == 1
@@ -893,12 +891,9 @@ class TestUploadPackEndpoint:
     async def test_pack_repeat_batch_off_groups_per_model(self, aiohttp_client):
         client = await aiohttp_client(self.app)
         token = _add_token(self.app, 42)
+        self.user_settings[42] = {"repeat": "2", "batch_models": "false"}
         file_id = await self._upload(client, token, _make_zip_bytes(["a.stl", "b.stl"]), "models.zip")
-        resp = await client.post(
-            f"/api/upload/{file_id}/pack",
-            json={"settings": {"repeat": "2", "batch_models": "false"}},
-            headers=_bearer(token),
-        )
+        resp = await client.post(f"/api/upload/{file_id}/pack", json={}, headers=_bearer(token))
         body = await resp.json()
         assert len(body["beds"]) == 2
         for bed in body["beds"]:
@@ -909,29 +904,13 @@ class TestUploadPackEndpoint:
     async def test_pack_repeat_batch_on_shares_one_bed(self, aiohttp_client):
         client = await aiohttp_client(self.app)
         token = _add_token(self.app, 42)
+        self.user_settings[42] = {"repeat": "2", "batch_models": "true"}
         file_id = await self._upload(client, token, _make_zip_bytes(["a.stl", "b.stl"]), "models.zip")
-        resp = await client.post(
-            f"/api/upload/{file_id}/pack",
-            json={"settings": {"repeat": "2", "batch_models": "true"}},
-            headers=_bearer(token),
-        )
+        resp = await client.post(f"/api/upload/{file_id}/pack", json={}, headers=_bearer(token))
         body = await resp.json()
         assert len(body["beds"]) == 1
         assert len(body["beds"][0]) == 4
         assert {item["index"] for item in body["beds"][0]} == {0, 1}
-
-    @pytest.mark.asyncio
-    async def test_pack_ignores_non_whitelisted_settings(self, aiohttp_client):
-        client = await aiohttp_client(self.app)
-        token = _add_token(self.app, 42)
-        file_id = await self._upload(client, token, _make_stl_bytes(), "model.stl")
-        resp = await client.post(
-            f"/api/upload/{file_id}/pack",
-            json={"settings": {"machine_width": "50"}},
-            headers=_bearer(token),
-        )
-        body = await resp.json()
-        assert body["bed_width"] == 235.0
 
     @pytest.mark.asyncio
     async def test_pack_not_found(self, aiohttp_client):
