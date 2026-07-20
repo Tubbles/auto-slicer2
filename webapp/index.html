@@ -958,7 +958,7 @@ function buildResetBtn(key) {
 
 // --- Events ---
 
-const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z', 'batch_models']);
+const UPLOAD_TRANSFORM_KEYS = new Set(['scale', 'scale_x', 'scale_y', 'scale_z', 'rotation_x', 'rotation_y', 'rotation_z', 'batch_models', 'repeat']);
 
 function onChange(key, value) {
   pendingChanges[key] = value;
@@ -1316,6 +1316,22 @@ function isBatchMode() {
   return raw === true || raw === 'true' || raw === 'True';
 }
 
+function repeatCount() {
+  const pc = window.pendingChanges || {};
+  const ov = window.overrides || {};
+  const defs = (window.registry && window.registry.defaults) || {};
+  const raw = (pc['repeat'] !== undefined && pc['repeat'] !== null) ? pc['repeat']
+    : (ov['repeat'] !== undefined ? ov['repeat']
+    : (defs['repeat'] !== undefined ? defs['repeat'] : 1));
+  const n = parseInt(raw, 10);
+  return isNaN(n) || n < 1 ? 1 : n;
+}
+
+// Packed bed preview is used for batch mode and for repeated copies
+function usePackedPreview() {
+  return (isBatchMode() && uploadModels.length > 1) || repeatCount() > 1;
+}
+
 function initScene() {
   if (sceneReady) return;
   const container = document.getElementById('upload-viewport');
@@ -1612,7 +1628,7 @@ async function loadBedPreview(bedIndex) {
     const geometry = loader.parse(buf.slice(0));  // slice to avoid detached buffer issues
 
     const material = new THREE.MeshPhongMaterial({
-      color: colors[i % colors.length],
+      color: colors[item.index % colors.length],  // copies of a model share a color
       transparent: true,
       opacity: 0.9,
       side: THREE.DoubleSide,
@@ -1684,7 +1700,9 @@ function updateBatchDimsDisplay(bed) {
   const dimsEl = document.getElementById('upload-dims');
   const bedDims = getBedDims();
   const fmt = v => v.toFixed(1);
-  const names = bed.map(m => m.name).join(', ');
+  const nameCounts = new Map();
+  for (const m of bed) nameCounts.set(m.name, (nameCounts.get(m.name) || 0) + 1);
+  const names = [...nameCounts].map(([n, c]) => c > 1 ? `${n} ×${c}` : n).join(', ');
   let html = `<div class="upload-dims-bed" style="grid-column:1/4">${bed.length} model${bed.length > 1 ? 's' : ''}: ${names}</div>`;
   if (bedDims) {
     html += `<div class="upload-dims-bed">Bed: ${fmt(bedDims.width)} × ${fmt(bedDims.depth)} × ${fmt(bedDims.height)} mm</div>`;
@@ -1748,7 +1766,12 @@ function exitBatchMode() {
   if (uploadFileId && uploadModels.length > 0) {
     loadModelByIndex(activeModelIndex);
   }
-  renderModelList();
+  // Single-model list only exists for the packed (repeat) preview
+  if (uploadModels.length <= 1) {
+    document.getElementById('upload-model-list').style.display = 'none';
+  } else {
+    renderModelList();
+  }
 }
 
 // --- File upload ---
@@ -1813,8 +1836,8 @@ async function handleFile(file) {
       document.getElementById('upload-model-list').style.display = 'none';
     }
 
-    // Batch mode: compute packing and show bed preview
-    if (isBatchMode() && uploadModels.length > 1) {
+    // Packed preview: batch mode or repeated copies
+    if (usePackedPreview()) {
       await enterBatchMode();
     } else {
       await loadModelByIndex(0);
@@ -1840,12 +1863,18 @@ function renderModelList() {
       const bed = packedBeds[b];
       const active = b === activeBedIndex ? ' active' : '';
       html += `<div class="upload-model-bed-header${active}" data-bed="${b}">Bed ${b + 1} (${bed.length} model${bed.length > 1 ? 's' : ''})</div>`;
-      for (const item of bed) {
+      // Collapse repeated copies of a model into one row with a \u00d7N count
+      const copyCounts = new Map();
+      for (const item of bed) copyCounts.set(item.index, (copyCounts.get(item.index) || 0) + 1);
+      const uniqueItems = [...new Map(bed.map(item => [item.index, item])).values()];
+      for (const item of uniqueItems) {
         packedIndices.add(item.index);
+        const copies = copyCounts.get(item.index);
+        const label = copies > 1 ? `${item.name} \u00d7${copies}` : item.name;
         const warn = overflowModels.has(item.index) ? '<span style="color:#e8a820" title="Does not fit on bed">\u26a0</span> ' : '';
         html += `<div class="upload-model-item" data-index="${item.index}" data-bed="${b}">
           <input type="checkbox" checked data-cb-index="${item.index}">
-          <span class="model-name">${warn}${item.name}</span>
+          <span class="model-name">${warn}${label}</span>
         </div>`;
       }
     }
@@ -1888,7 +1917,7 @@ function renderModelList() {
     }
     renderModelList();
     updateSliceButton();
-    if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
+    if (usePackedPreview()) enterBatchMode();
   });
 
   // Bed header clicks: switch to that bed's preview
@@ -1911,7 +1940,7 @@ function renderModelList() {
       renderModelList();
       updateSliceButton();
       // Recompute packing when selection changes in batch mode
-      if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
+      if (usePackedPreview()) enterBatchMode();
     });
     item.addEventListener('click', (e) => {
       if (e.target.tagName === 'INPUT') return;
@@ -1920,7 +1949,7 @@ function renderModelList() {
         checkedModels.add(idx);
         renderModelList();
         updateSliceButton();
-        if (isBatchMode() && uploadModels.length > 1) enterBatchMode();
+        if (usePackedPreview()) enterBatchMode();
         else loadModelByIndex(idx);
         return;
       }
@@ -2149,7 +2178,7 @@ document.getElementById('bed-next').addEventListener('click', () => {
 // Expose for onChange hook — handle batch mode toggle and transform changes
 window._updateUploadTransforms = function() {
   if (!uploadFileId) return;
-  const batch = isBatchMode() && uploadModels.length > 1;
+  const batch = usePackedPreview();
   const wasBatch = packedBeds !== null;
   if (batch && !wasBatch) {
     enterBatchMode();
