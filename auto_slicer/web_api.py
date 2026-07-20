@@ -24,8 +24,11 @@ from .presets import load_presets
 from .settings_eval import build_dep_graph, build_reverse_deps, evaluate_expressions
 from .settings_registry import SettingDefinition
 from .settings_validate import validate
-from .packing import pack_models
-from .slicer import _resolve_rotation, _resolve_scale, resolve_settings, slice_batch, slice_file
+from .packing import pack_groups, repeat_groups
+from .slicer import (
+    _resolve_batch, _resolve_repeat, _resolve_rotation, _resolve_scale,
+    dedupe_counted, resolve_settings, slice_batch, slice_file,
+)
 from .stl_transform import needs_rotation, needs_scaling, scale_stl
 from .threemf import convert_3mf_to_stl
 
@@ -451,7 +454,10 @@ async def handle_upload_pack(request: web.Request) -> web.Response:
         # Compute XY scale for preview packing (STLs aren't physically scaled yet)
         sx, sy, _ = _resolve_scale(config.defaults, overrides)
         scale_xy = (sx / 100.0, sy / 100.0)
-        beds_packed, overflow = await asyncio.to_thread(pack_models, stl_paths, bed_w, bed_d, active, scale_xy)
+        repeat = _resolve_repeat(config.defaults, overrides)
+        batch = _resolve_batch(config.defaults, overrides)
+        groups = repeat_groups(stl_paths, repeat, batch)
+        beds_packed, overflow = await asyncio.to_thread(pack_groups, groups, bed_w, bed_d, active, scale_xy)
     except Exception as exc:
         print(f"Pack error: {exc}", flush=True)
         return web.json_response({"error": str(exc)}, status=500)
@@ -516,9 +522,10 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
     if not models:
         return web.json_response({"error": "no models selected"}, status=400)
 
-    # Check if batch mode is enabled
-    batch = overrides.get("batch_models", config.defaults.get("batch_models", "false"))
-    use_batch = batch.lower() in ("true", "1", "yes") and len(models) > 1
+    # Batch path also handles repeat: copies are packed onto beds
+    batch = _resolve_batch(config.defaults, overrides)
+    repeat = _resolve_repeat(config.defaults, overrides)
+    use_batch = (batch and len(models) > 1) or repeat > 1
 
     # Copy selected STLs to a fresh temp dir since slice_file moves files
     slice_dir = tempfile.mkdtemp(prefix="slicer_slice_")
@@ -575,7 +582,7 @@ async def _run_individual(config, dst_paths, overrides, archive_folder):
 
 
 async def _run_batch(config, dst_paths, overrides, archive_folder):
-    """Pack models onto beds and slice each bed."""
+    """Pack models (with repeat copies) onto beds and slice each bed."""
     # Apply scaling before packing (packing reads bounding boxes)
     sx, sy, sz = _resolve_scale(config.defaults, overrides)
     if needs_scaling(sx, sy, sz):
@@ -586,11 +593,13 @@ async def _run_batch(config, dst_paths, overrides, archive_folder):
     bed_w = float(active.get("machine_width", "235"))
     bed_d = float(active.get("machine_depth", "235"))
 
-    beds, _overflow = pack_models(dst_paths, bed_w, bed_d, active)
+    repeat = _resolve_repeat(config.defaults, overrides)
+    batch = _resolve_batch(config.defaults, overrides)
+    beds, _overflow = pack_groups(repeat_groups(dst_paths, repeat, batch), bed_w, bed_d, active)
 
     results = []
     for bed_models in beds:
-        names = [p.name for p, _, _ in bed_models]
+        names = dedupe_counted([p.stem for p, _, _ in bed_models])
         success, message, archive_path, stats = await asyncio.to_thread(
             slice_batch, config, bed_models, overrides,
             archive_folder=archive_folder,

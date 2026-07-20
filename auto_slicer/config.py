@@ -65,6 +65,13 @@ CUSTOM_SETTINGS = [
         setting_type="bool", default_value=False,
         category="Model",
     ),
+    SettingDefinition(
+        key="repeat", label="Repeat",
+        description="Print this many copies of each model, packed onto the bed",
+        setting_type="int", default_value=1,
+        minimum_value=1, maximum_value=100,
+        category="Model",
+    ),
 ]
 
 

@@ -10,9 +10,10 @@ from auto_slicer.config import Config
 from auto_slicer.handlers import _find_models_in_zip
 from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _build_indexes
 from auto_slicer.slicer import (
-    SCALE_KEYS, TRANSFORM_KEYS, _resolve_rotation, _resolve_scale, _try_number,
-    build_batch_command, build_cura_command, expand_gcode_tokens, extract_stats,
-    find_unknown_gcode_tokens, format_duration,
+    SCALE_KEYS, TRANSFORM_KEYS, _resolve_batch, _resolve_repeat, _resolve_rotation,
+    _resolve_scale, _try_number,
+    build_batch_command, build_cura_command, dedupe_counted, expand_gcode_tokens,
+    extract_stats, find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
     matching_presets, merge_settings, parse_gcode_header,
     patch_gcode_header, resolve_settings, slice_file,
@@ -809,6 +810,64 @@ class TestRotationKeysStripped:
         assert "rotation_x" in TRANSFORM_KEYS
         assert "rotation_y" in TRANSFORM_KEYS
         assert "rotation_z" in TRANSFORM_KEYS
+
+
+class TestResolveRepeat:
+    def test_defaults_to_one(self):
+        assert _resolve_repeat({}, {}) == 1
+
+    def test_config_default(self):
+        assert _resolve_repeat({"repeat": "3"}, {}) == 3
+
+    def test_user_override_wins(self):
+        assert _resolve_repeat({"repeat": "3"}, {"repeat": "5"}) == 5
+
+    def test_float_string_coerced(self):
+        assert _resolve_repeat({}, {"repeat": "2.0"}) == 2
+
+    def test_clamped_to_minimum_one(self):
+        assert _resolve_repeat({}, {"repeat": "0"}) == 1
+
+
+class TestResolveBatch:
+    def test_defaults_to_false(self):
+        assert _resolve_batch({}, {}) is False
+
+    def test_config_default(self):
+        assert _resolve_batch({"batch_models": "true"}, {}) is True
+
+    def test_user_override_wins(self):
+        assert _resolve_batch({"batch_models": "true"}, {"batch_models": "false"}) is False
+
+    def test_accepts_one_and_yes(self):
+        assert _resolve_batch({}, {"batch_models": "1"}) is True
+        assert _resolve_batch({}, {"batch_models": "yes"}) is True
+
+
+class TestDedupeCounted:
+    def test_no_duplicates_unchanged(self):
+        assert dedupe_counted(["a", "b"]) == ["a", "b"]
+
+    def test_duplicates_collapsed_with_count(self):
+        assert dedupe_counted(["a", "a", "a"]) == ["a_x3"]
+
+    def test_mixed_preserves_first_seen_order(self):
+        assert dedupe_counted(["b", "a", "b", "a", "b"]) == ["b_x3", "a_x2"]
+
+    def test_empty(self):
+        assert dedupe_counted([]) == []
+
+
+class TestRepeatKeyStripped:
+    def test_repeat_and_batch_absent_from_resolved(self):
+        reg = _make_registry([
+            _make_setting("layer_height", default_value=0.2),
+            _make_setting("repeat", setting_type="int", default_value=1),
+            _make_setting("batch_models", setting_type="bool", default_value=False),
+        ])
+        result = resolve_settings(reg, {"repeat": "1", "batch_models": "false"}, {"repeat": "4"})
+        assert "repeat" not in result
+        assert "batch_models" not in result
 
 
 class TestSliceFileRotation:

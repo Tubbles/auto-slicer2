@@ -148,3 +148,31 @@ def pack_models(
         next_bin += 1
 
     return [bins[k] for k in sorted(bins)], set(unplaced)
+
+
+def repeat_groups(stl_paths: list[Path], repeat: int, batch: bool) -> list[list[Path]]:
+    """Return packing groups with each path repeated `repeat` times.
+
+    batch=True yields one group with all models mixed; batch=False yields
+    one group per model so each model's copies share beds only with itself.
+    """
+    if batch:
+        return [[p for p in stl_paths for _ in range(repeat)]]
+    return [[p] * repeat for p in stl_paths]
+
+
+def pack_groups(
+    groups: list[list[Path]],
+    bed_width: float,
+    bed_depth: float,
+    settings: dict[str, str],
+    scale_xy: tuple[float, float] = (1.0, 1.0),
+) -> tuple[list[list[tuple[Path, float, float]]], set[Path]]:
+    """Pack each group onto its own beds and concatenate the results."""
+    beds: list[list[tuple[Path, float, float]]] = []
+    overflow: set[Path] = set()
+    for group in groups:
+        group_beds, group_overflow = pack_models(group, bed_width, bed_depth, settings, scale_xy)
+        beds.extend(group_beds)
+        overflow |= group_overflow
+    return beds, overflow

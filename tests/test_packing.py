@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 from stl import mesh
 
-from auto_slicer.packing import MODEL_GAP, adhesion_margin, convex_hull_2d, get_xy_bounds, get_xy_hull, pack_models
+from auto_slicer.packing import (
+    MODEL_GAP, adhesion_margin, convex_hull_2d, get_xy_bounds, get_xy_hull,
+    pack_groups, pack_models, repeat_groups,
+)
 
 
 def _make_box_stl(path: Path, w: float, d: float, h: float) -> None:
@@ -187,3 +190,55 @@ class TestPackModels:
         # At 200% scale: 4 × 102mm won't fit on 120mm bed
         beds_scaled, _ = pack_models(models, 120, 120, settings, scale_xy=(2.0, 2.0))
         assert len(beds_scaled) > 1
+
+
+class TestRepeatGroups:
+    def test_no_repeat_batch(self):
+        a, b = Path("a.stl"), Path("b.stl")
+        assert repeat_groups([a, b], 1, batch=True) == [[a, b]]
+
+    def test_no_repeat_individual(self):
+        a, b = Path("a.stl"), Path("b.stl")
+        assert repeat_groups([a, b], 1, batch=False) == [[a], [b]]
+
+    def test_repeat_batch_mixes_models(self):
+        a, b = Path("a.stl"), Path("b.stl")
+        assert repeat_groups([a, b], 3, batch=True) == [[a, a, a, b, b, b]]
+
+    def test_repeat_individual_groups_per_model(self):
+        a, b = Path("a.stl"), Path("b.stl")
+        assert repeat_groups([a, b], 2, batch=False) == [[a, a], [b, b]]
+
+
+class TestPackGroups:
+    def test_repeated_model_placed_multiple_times(self, tmp_path):
+        stl = tmp_path / "a.stl"
+        _make_box_stl(stl, 50, 50, 10)
+        beds, overflow = pack_groups([[stl] * 3], 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 1
+        assert len(beds[0]) == 3
+        assert all(p == stl for p, _, _ in beds[0])
+        # Copies must not overlap: all offsets distinct
+        offsets = {(round(ox, 1), round(oy, 1)) for _, ox, oy in beds[0]}
+        assert len(offsets) == 3
+        assert overflow == set()
+
+    def test_separate_groups_never_share_beds(self, tmp_path):
+        a = tmp_path / "a.stl"
+        b = tmp_path / "b.stl"
+        _make_box_stl(a, 30, 30, 10)
+        _make_box_stl(b, 30, 30, 10)
+        # Both would fit one bed, but separate groups force separate beds
+        beds, _ = pack_groups([[a], [b]], 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 2
+        assert {p for p, _, _ in beds[0]} == {a}
+        assert {p for p, _, _ in beds[1]} == {b}
+
+    def test_repeat_overflows_to_extra_beds(self, tmp_path):
+        stl = tmp_path / "big.stl"
+        _make_box_stl(stl, 100, 100, 10)
+        # 100mm + margin per copy, 235mm bed → 4 per bed, 5 copies → 2 beds
+        beds, overflow = pack_groups([[stl] * 5], 235, 235, {"adhesion_type": "none"})
+        assert len(beds) >= 2
+        assert sum(len(b) for b in beds) == 5
+        assert overflow == set()

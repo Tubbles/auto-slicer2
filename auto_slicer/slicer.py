@@ -17,7 +17,7 @@ GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
 ROTATION_KEYS = {"rotation_x", "rotation_y", "rotation_z"}
 TRANSFORM_KEYS = {"scale", "scale_x", "scale_y", "scale_z"} | ROTATION_KEYS
 # Custom keys that are handled before slicing, never sent to CuraEngine
-CUSTOM_KEYS = TRANSFORM_KEYS | {"batch_models"}
+CUSTOM_KEYS = TRANSFORM_KEYS | {"batch_models", "repeat"}
 # Keep SCALE_KEYS as alias for backwards compatibility in tests
 SCALE_KEYS = TRANSFORM_KEYS
 
@@ -100,6 +100,26 @@ def _resolve_rotation(config_defaults: dict[str, str], overrides: dict[str, str]
     ry = float(merged.get("rotation_y", "0"))
     rz = float(merged.get("rotation_z", "0"))
     return rx, ry, rz
+
+
+def _resolve_batch(config_defaults: dict[str, str], overrides: dict[str, str]) -> bool:
+    """Resolve the batch_models flag from defaults and overrides."""
+    merged = {**config_defaults, **overrides}
+    return merged.get("batch_models", "false").lower() in ("true", "1", "yes")
+
+
+def _resolve_repeat(config_defaults: dict[str, str], overrides: dict[str, str]) -> int:
+    """Resolve the repeat count (copies of each model) from defaults and overrides."""
+    merged = {**config_defaults, **overrides}
+    return max(1, int(float(merged.get("repeat", "1"))))
+
+
+def dedupe_counted(names: list[str]) -> list[str]:
+    """Collapse repeated names into 'name_xN', preserving first-seen order."""
+    counts: dict[str, int] = {}
+    for name in names:
+        counts[name] = counts.get(name, 0) + 1
+    return [name if count == 1 else f"{name}_x{count}" for name, count in counts.items()]
 
 
 def resolve_settings(
@@ -472,7 +492,7 @@ def slice_batch(
         print(f"[Error] {error_msg}")
         return False, error_msg, None, {}
 
-    names = [p.stem for p, _, _ in bed_models]
+    names = dedupe_counted([p.stem for p, _, _ in bed_models])
     batch_name = "+".join(names)
     gcode_path = bed_models[0][0].parent / f"{batch_name}.gcode"
 

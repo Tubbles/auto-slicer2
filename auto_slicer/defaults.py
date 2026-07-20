@@ -25,6 +25,9 @@ SETTINGS: dict[str, dict] = {
     "batch_models": {
         "default_value": "false",
     },
+    "repeat": {
+        "default_value": "1",
+    },
     "layer_height": {
         "default_value": "0.2",
     },

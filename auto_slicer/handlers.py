@@ -11,8 +11,8 @@ from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .file_utils import find_models_in_zip
-from .packing import pack_models
-from .slicer import format_duration, slice_batch, slice_file
+from .packing import pack_groups, repeat_groups
+from .slicer import _resolve_batch, _resolve_repeat, format_duration, slice_batch, slice_file
 from .stl_transform import needs_scaling, scale_stl
 from .web_api import generate_token, TOKEN_TTL
 
@@ -206,8 +206,7 @@ def format_stats_line(stats: dict) -> str:
 
 def _is_batch_mode(config: Config, overrides: dict) -> bool:
     """Check if batch_models is enabled."""
-    val = overrides.get("batch_models", config.defaults.get("batch_models", "false"))
-    return val.lower() in ("true", "1", "yes")
+    return _resolve_batch(config.defaults, overrides)
 
 
 def _prepare_models_for_batch(models: list[Path], config: Config, overrides: dict) -> list[Path]:
@@ -248,25 +247,31 @@ async def _handle_zip(update: Update, config: Config, zip_path: Path, overrides:
 
         n = len(stls)
         batch = _is_batch_mode(config, overrides)
+        repeat = _resolve_repeat(config.defaults, overrides)
 
         extract_root = Path(extract_dir)
-        if batch and n > 1:
-            await _handle_zip_batch(update, config, zip_path, sorted(stls), overrides, extract_root)
+        if (batch and n > 1) or repeat > 1:
+            await _handle_batch(update, config, zip_path, sorted(stls), overrides, extract_root)
         else:
             await _handle_zip_individual(update, config, zip_path, sorted(stls), overrides, extract_root)
 
 
-async def _handle_zip_batch(
-    update: Update, config: Config, zip_path: Path, models: list[Path], overrides: dict,
+async def _handle_batch(
+    update: Update, config: Config, source_path: Path, models: list[Path], overrides: dict,
     extract_root: Path | None = None,
 ) -> None:
-    """Pack models onto beds and slice each bed as a single CuraEngine invocation."""
-    from .slicer import _resolve_rotation, _resolve_scale, resolve_settings
-    from .stl_transform import euler_to_rotation_matrix, needs_rotation
+    """Pack models onto beds and slice each bed as a single CuraEngine invocation.
 
-    n = len(models)
+    Each model is duplicated `repeat` times before packing. With batch_models
+    enabled all models share beds; otherwise each model's copies get their own.
+    """
+    from .slicer import dedupe_counted, resolve_settings
+
+    repeat = _resolve_repeat(config.defaults, overrides)
+    batch = _resolve_batch(config.defaults, overrides)
+    total = len(models) * repeat
     await update.message.reply_text(
-        f"Received {zip_path.name}, packing {n} models onto beds..."
+        f"Received {source_path.name}, packing {total} model{'s' if total != 1 else ''} onto beds..."
     )
 
     try:
@@ -280,19 +285,19 @@ async def _handle_zip_batch(
     bed_w = float(active.get("machine_width", "235"))
     bed_d = float(active.get("machine_depth", "235"))
 
-    beds, _overflow = pack_models(prepared, bed_w, bed_d, active)
+    beds, _overflow = pack_groups(repeat_groups(prepared, repeat, batch), bed_w, bed_d, active)
     n_beds = len(beds)
     await update.message.reply_text(
         f"Packed into {n_beds} bed{'s' if n_beds != 1 else ''}, slicing..."
     )
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    archive_folder = config.archive_dir / zip_path.stem / timestamp
+    archive_folder = config.archive_dir / source_path.stem / timestamp
 
     failures = []
     bed_stats = []
     for i, bed_models in enumerate(beds):
-        names = [p.name for p, _, _ in bed_models]
+        names = dedupe_counted([p.stem for p, _, _ in bed_models])
         bed_label = f"Bed {i + 1}" if n_beds > 1 else "Bed"
         success, message, _, stats = slice_batch(config, bed_models, overrides, archive_folder=archive_folder)
         if success:
@@ -403,6 +408,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if name_lower.endswith(".zip"):
             await _handle_zip(update, config, file_path, overrides)
+        elif _resolve_repeat(config.defaults, overrides) > 1:
+            await _handle_batch(update, config, file_path, [file_path], overrides)
         else:
             await update.message.reply_text(f"Received {document.file_name}, slicing...")
             success, message, archive_path, stats = slice_file(config, file_path, overrides)
