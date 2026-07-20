@@ -184,6 +184,17 @@ def matching_presets(overrides: dict[str, str], presets: dict[str, dict]) -> lis
     ]
 
 
+def _sanitize_preset_name(name: str) -> str:
+    """Make a preset name safe for use in a directory name."""
+    return re.sub(r"[^A-Za-z0-9-]+", "-", name).strip("-")
+
+
+def archive_folder_name(overrides: dict[str, str], presets: dict[str, dict], timestamp: str) -> str:
+    """Prefix the timestamp with matching preset names, e.g. draft_PETG_20260720_110632."""
+    names = [_sanitize_preset_name(n) for n in matching_presets(overrides, presets)]
+    return "_".join(names + [timestamp])
+
+
 def format_settings_summary(
     overrides: dict[str, str], presets: dict[str, dict],
     registry: SettingsRegistry | None = None,
@@ -440,7 +451,7 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
             presets = load_presets()
             inject_metadata(gcode_path, overrides, presets)
 
-            job_folder = archive_folder or config.archive_dir / stl_path.stem / time.strftime("%Y%m%d_%H%M%S")
+            job_folder = archive_folder or config.archive_dir / stl_path.stem / archive_folder_name(overrides, presets, time.strftime("%Y%m%d_%H%M%S"))
             gcode_dest = job_folder / archive_subdir if archive_subdir else job_folder
             gcode_dest.mkdir(parents=True, exist_ok=True)
             job_folder.mkdir(parents=True, exist_ok=True)
@@ -530,7 +541,7 @@ def slice_batch(
             presets = load_presets()
             inject_metadata(gcode_path, overrides, presets)
 
-            job_folder = archive_folder or config.archive_dir / batch_name / time.strftime("%Y%m%d_%H%M%S")
+            job_folder = archive_folder or config.archive_dir / batch_name / archive_folder_name(overrides, presets, time.strftime("%Y%m%d_%H%M%S"))
             job_folder.mkdir(parents=True, exist_ok=True)
 
             model_folder = job_folder.parent

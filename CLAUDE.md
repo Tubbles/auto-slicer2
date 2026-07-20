@@ -123,7 +123,7 @@ tests/
 6. If rotation settings are nonzero, `euler_to_rotation_matrix()` computes the matrix and injects `mesh_rotation_matrix`
 7. If `repeat` > 1, or `batch_models` is enabled and multiple models are present, `repeat_groups()` + `pack_groups()` nest the model copies' convex hulls onto beds using `pynest2d`, then `slice_batch()` invokes CuraEngine once per bed with multiple `-l` flags and per-mesh `mesh_position_x/y` offsets (rotation settings are ignored on this path)
 8. Otherwise, `slice_file()` invokes CuraEngine per model with merged settings (custom keys stripped — CuraEngine never sees them, except `mesh_rotation_matrix`)
-9. On success: archives original model+gcode+settings.txt to timestamped subfolder, notifies user with path
+9. On success: archives original model+gcode+settings.txt to a timestamped subfolder prefixed with any matching preset names (e.g. `draft_PETG_20260720_110632`, via `archive_folder_name()`), notifies user with path
 10. On failure: moves original model to `archive/errors/`, sends error message
 
 KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `settings.txt` is visible when browsing the archive on the printer.

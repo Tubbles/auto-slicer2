@@ -12,8 +12,8 @@ from auto_slicer.settings_registry import SettingDefinition, SettingsRegistry, _
 from auto_slicer.slicer import (
     SCALE_KEYS, TRANSFORM_KEYS, _resolve_batch, _resolve_repeat, _resolve_rotation,
     _resolve_scale, _try_number,
-    build_batch_command, build_cura_command, dedupe_counted, expand_gcode_tokens,
-    extract_stats, find_unknown_gcode_tokens, format_duration,
+    archive_folder_name, build_batch_command, build_cura_command, dedupe_counted,
+    expand_gcode_tokens, extract_stats, find_unknown_gcode_tokens, format_duration,
     format_metadata_comments, format_settings_summary, inject_metadata,
     matching_presets, merge_settings, parse_gcode_header,
     patch_gcode_header, resolve_settings, slice_file,
@@ -434,6 +434,27 @@ class TestSliceFileArchiveFolder:
             model_dir = result_path.parent
             assert (model_dir / "model.stl").exists()
 
+    @patch("auto_slicer.slicer.load_presets", return_value={
+        "draft": {"description": "", "settings": {"layer_height": "0.3"}},
+    })
+    @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
+    @patch("auto_slicer.slicer.subprocess.run")
+    def test_default_folder_prefixed_with_matching_preset(self, mock_run, mock_thumbs, mock_presets):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            stl = tmpdir / "model.stl"
+            stl.write_text("solid test")
+            (tmpdir / "model.gcode").write_text("; header\nG28\n")
+            config = self._make_config(tmpdir / "archive")
+
+            success, _, result_path, _ = slice_file(config, stl, {"layer_height": "0.3"})
+
+            assert success
+            # job_folder is archive/model/draft_<timestamp>/
+            assert result_path.name.startswith("draft_")
+            assert result_path.parent.name == "model"
+
 
 class TestFindModelsInZip:
     def test_finds_stls(self):
@@ -810,6 +831,29 @@ class TestRotationKeysStripped:
         assert "rotation_x" in TRANSFORM_KEYS
         assert "rotation_y" in TRANSFORM_KEYS
         assert "rotation_z" in TRANSFORM_KEYS
+
+
+class TestArchiveFolderName:
+    PRESETS = {
+        "draft": {"description": "", "settings": {"layer_height": "0.3"}},
+        "PETG": {"description": "", "settings": {"material_print_temperature": "235"}},
+    }
+
+    def test_no_matching_preset(self):
+        assert archive_folder_name({}, self.PRESETS, "20260720_110632") == "20260720_110632"
+
+    def test_single_preset_prefixed(self):
+        overrides = {"material_print_temperature": "235"}
+        assert archive_folder_name(overrides, self.PRESETS, "20260720_110632") == "PETG_20260720_110632"
+
+    def test_multiple_presets_in_preset_order(self):
+        overrides = {"layer_height": "0.3", "material_print_temperature": "235"}
+        assert archive_folder_name(overrides, self.PRESETS, "20260720_110632") == "draft_PETG_20260720_110632"
+
+    def test_unsafe_preset_name_sanitized(self):
+        presets = {"TPU (bowden)": {"description": "", "settings": {"retraction_amount": "2"}}}
+        overrides = {"retraction_amount": "2"}
+        assert archive_folder_name(overrides, presets, "ts") == "TPU-bowden_ts"
 
 
 class TestResolveRepeat:

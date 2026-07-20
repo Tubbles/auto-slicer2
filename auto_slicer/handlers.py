@@ -12,7 +12,8 @@ from telegram.ext import ContextTypes
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
 from .file_utils import find_models_in_zip
 from .packing import pack_groups, repeat_groups
-from .slicer import _resolve_batch, _resolve_repeat, format_duration, slice_batch, slice_file
+from .presets import load_presets
+from .slicer import _resolve_batch, _resolve_repeat, archive_folder_name, format_duration, slice_batch, slice_file
 from .stl_transform import needs_scaling, scale_stl
 from .web_api import generate_token, TOKEN_TTL
 
@@ -291,8 +292,8 @@ async def _handle_batch(
         f"Packed into {n_beds} bed{'s' if n_beds != 1 else ''}, slicing..."
     )
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    archive_folder = config.archive_dir / source_path.stem / timestamp
+    folder_name = archive_folder_name(overrides, load_presets(), time.strftime("%Y%m%d_%H%M%S"))
+    archive_folder = config.archive_dir / source_path.stem / folder_name
 
     failures = []
     bed_stats = []
@@ -337,8 +338,8 @@ async def _handle_zip_individual(
         f"Received {zip_path.name}, slicing {n} file{'s' if n != 1 else ''}..."
     )
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    archive_folder = config.archive_dir / zip_path.stem / timestamp
+    folder_name = archive_folder_name(overrides, load_presets(), time.strftime("%Y%m%d_%H%M%S"))
+    archive_folder = config.archive_dir / zip_path.stem / folder_name
 
     failures = []
     file_stats = []

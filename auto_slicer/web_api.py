@@ -27,7 +27,7 @@ from .settings_validate import validate
 from .packing import pack_groups, repeat_groups
 from .slicer import (
     _resolve_batch, _resolve_repeat, _resolve_rotation, _resolve_scale,
-    dedupe_counted, resolve_settings, slice_batch, slice_file,
+    archive_folder_name, dedupe_counted, resolve_settings, slice_batch, slice_file,
 )
 from .stl_transform import needs_rotation, needs_scaling, scale_stl
 from .threemf import convert_3mf_to_stl
@@ -539,7 +539,8 @@ async def handle_upload_slice(request: web.Request) -> web.Response:
     # Use a shared archive folder for multi-model slicing
     archive_folder = None
     if len(models) > 1:
-        archive_folder = config.archive_dir / Path(info["filename"]).stem / time.strftime("%Y%m%d_%H%M%S")
+        folder_name = archive_folder_name(overrides, load_presets(), time.strftime("%Y%m%d_%H%M%S"))
+        archive_folder = config.archive_dir / Path(info["filename"]).stem / folder_name
 
     async def _run():
         try:
