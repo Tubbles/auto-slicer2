@@ -234,6 +234,27 @@ class TestPackGroups:
         assert {p for p, _, _ in beds[0]} == {a}
         assert {p for p, _, _ in beds[1]} == {b}
 
+    def test_two_models_repeat_batch_off_separate_beds(self, tmp_path):
+        """repeat=5, batch off: each model's own bed with 5 copies of itself."""
+        a = tmp_path / "gear.stl"
+        b = tmp_path / "knob.stl"
+        _make_box_stl(a, 20, 20, 10)
+        _make_box_stl(b, 20, 20, 10)
+        beds, _ = pack_groups(repeat_groups([a, b], 5, batch=False), 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 2
+        assert [p for p, _, _ in beds[0]] == [a] * 5
+        assert [p for p, _, _ in beds[1]] == [b] * 5
+
+    def test_two_models_repeat_batch_on_single_bed(self, tmp_path):
+        """repeat=5, batch on: one bed containing all 10 items."""
+        a = tmp_path / "gear.stl"
+        b = tmp_path / "knob.stl"
+        _make_box_stl(a, 20, 20, 10)
+        _make_box_stl(b, 20, 20, 10)
+        beds, _ = pack_groups(repeat_groups([a, b], 5, batch=True), 235, 235, {"adhesion_type": "none"})
+        assert len(beds) == 1
+        assert sorted(p.name for p, _, _ in beds[0]) == ["gear.stl"] * 5 + ["knob.stl"] * 5
+
     def test_repeat_overflows_to_extra_beds(self, tmp_path):
         stl = tmp_path / "big.stl"
         _make_box_stl(stl, 100, 100, 10)
