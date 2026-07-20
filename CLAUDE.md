@@ -111,6 +111,8 @@ tests/
 
 **Upload & Slice via webapp** (`web_api.py`): The "Upload" tab in the Mini App allows uploading STL/3MF/ZIP files via `POST /api/upload`, previewing the model with three.js (bounding box + bed outline), and triggering slicing via `POST /api/upload/{file_id}/slice`. Uploads are stored in temp directories with 30-minute TTL. Slicing runs async via `asyncio.create_task` + `asyncio.to_thread`, with status polling via `GET /api/upload/{file_id}/status`.
 
+**Live preview vs applied settings**: the bed-layout preview (`POST /api/upload/{file_id}/pack`) accepts a `settings` dict in the request body, whitelisted to `PACK_PREVIEW_KEYS` (batch_models, repeat, scale, scale_x/y/z). The frontend sends its effective pending values there, so toggling Batch Models, Repeat, or Scale re-packs the preview immediately without tapping Apply (`onChange` fires `_updateUploadTransforms()` for keys in `UPLOAD_TRANSFORM_KEYS`). Scale and rotation are additionally applied client-side to the three.js meshes. Every other setting (adhesion type, bed size, ...) influences the preview only through saved overrides, and slicing always uses saved overrides — pending changes must be applied before Slice.
+
 ### Workflow
 
 1. User configures settings via the Mini App (webapp)

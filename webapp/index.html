@@ -1590,6 +1590,16 @@ async function fetchPackLayout() {
   if (!uploadFileId) return null;
   const indices = [...checkedModels].sort();
   if (indices.length === 0) return null;
+  // Send effective (pending-inclusive) values so the layout previews
+  // changes that have not been applied yet. Slicing uses applied settings.
+  const masterScale = getTransformVal('scale', 100);
+  const settings = {
+    batch_models: isBatchMode() ? 'true' : 'false',
+    repeat: String(repeatCount()),
+    scale: String(masterScale),
+    scale_x: String(getTransformVal('scale_x', masterScale)),
+    scale_y: String(getTransformVal('scale_y', masterScale)),
+  };
   try {
     const r = await fetch(API_BASE + `/api/upload/${uploadFileId}/pack`, {
       method: 'POST',
@@ -1597,7 +1607,7 @@ async function fetchPackLayout() {
         'Authorization': 'Bearer ' + TOKEN,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ indices }),
+      body: JSON.stringify({ indices, settings }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
