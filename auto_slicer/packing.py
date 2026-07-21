@@ -101,7 +101,9 @@ def pack_models(
     Offsets are relative to bed center (for use with center_object=true + mesh_position_x/y).
     """
     margin = adhesion_margin(settings) + MODEL_GAP
-    sx, sy = scale_xy
+    # Mirroring (negative scale) doesn't change the packing footprint, and a
+    # mirrored hull would reverse polygon winding, which pynest2d can't take
+    sx, sy = abs(scale_xy[0]), abs(scale_xy[1])
 
     # Build pynest2d items from convex hulls
     hulls = []

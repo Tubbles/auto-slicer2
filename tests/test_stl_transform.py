@@ -20,6 +20,27 @@ def _make_stl(path: Path) -> mesh.Mesh:
     return m
 
 
+def _make_tetra_stl(path: Path, apex_x: float = 1.0) -> None:
+    """Closed tetrahedron with outward-facing winding (positive volume)."""
+    a, b, c, d = [0, 0, 0], [apex_x, 0, 0], [0, 1, 0], [0, 0, 1]
+    faces = [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]
+    m = mesh.Mesh(np.zeros(4, dtype=mesh.Mesh.dtype))
+    for i, f in enumerate(faces):
+        m.vectors[i] = f
+    m.save(str(path))
+
+
+def _volume(path: Path) -> float:
+    """Signed volume — negative means the winding is inside-out."""
+    volume, _, _ = mesh.Mesh.from_file(str(path)).get_mass_properties()
+    return float(volume)
+
+
+def _bbox(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    m = mesh.Mesh.from_file(str(path))
+    return m.vectors.min(axis=(0, 1)), m.vectors.max(axis=(0, 1))
+
+
 class TestNeedsScaling:
     def test_all_100_returns_false(self):
         assert needs_scaling(100.0, 100.0, 100.0) is False
@@ -74,6 +95,59 @@ class TestScaleStl:
             scale_stl(path, 150.0, 150.0, 150.0)
             m = mesh.Mesh.from_file(str(path))
             assert len(m.vectors) == 1
+
+
+class TestMirrorScale:
+    def test_negative_scale_needs_scaling(self):
+        assert needs_scaling(-100.0, 100.0, 100.0) is True
+
+    def test_mirror_keeps_winding_outward(self, tmp_path):
+        stl = tmp_path / "tetra.stl"
+        _make_tetra_stl(stl)
+        original_volume = _volume(stl)
+        assert original_volume > 0  # sanity: fixture is wound outward
+        scale_stl(stl, -100.0, 100.0, 100.0)
+        assert abs(_volume(stl) - original_volume) < 1e-9
+
+    def test_double_mirror_keeps_winding_outward(self, tmp_path):
+        stl = tmp_path / "tetra.stl"
+        _make_tetra_stl(stl)
+        original_volume = _volume(stl)
+        scale_stl(stl, -100.0, -100.0, 100.0)
+        assert abs(_volume(stl) - original_volume) < 1e-9
+
+    def test_mirror_x_reflects_about_bbox_center(self, tmp_path):
+        stl = tmp_path / "tetra.stl"
+        _make_tetra_stl(stl, apex_x=4.0)
+        scale_stl(stl, -100.0, 100.0, 100.0)
+        # Bbox is unchanged (mirror in place)...
+        low, high = _bbox(stl)
+        np.testing.assert_allclose(low, [0.0, 0.0, 0.0], atol=1e-9)
+        np.testing.assert_allclose(high, [4.0, 1.0, 1.0], atol=1e-9)
+        # ...but the geometry flipped: 3 of 4 unique vertices sat at x=0,
+        # after mirroring they sit at x=4
+        m = mesh.Mesh.from_file(str(stl))
+        xs = m.vectors[:, :, 0].flatten()
+        assert (xs > 3.9).sum() > (xs < 0.1).sum()
+
+    def test_mirror_z_keeps_bottom_on_bed(self, tmp_path):
+        stl = tmp_path / "tetra.stl"
+        _make_tetra_stl(stl)
+        scale_stl(stl, 100.0, 100.0, -100.0)
+        low, high = _bbox(stl)
+        assert abs(low[2]) < 1e-9  # z-min stays at 0
+        assert abs(high[2] - 1.0) < 1e-9
+        assert _volume(stl) > 0
+
+    def test_mirror_with_resize_keeps_center_and_bottom(self, tmp_path):
+        stl = tmp_path / "tetra.stl"
+        _make_tetra_stl(stl, apex_x=4.0)  # x in [0, 4], center 2
+        scale_stl(stl, -200.0, 100.0, 100.0)
+        low, high = _bbox(stl)
+        # Width doubled to 8, mirrored about the old center x=2
+        assert abs(low[0] - (-2.0)) < 1e-9
+        assert abs(high[0] - 6.0) < 1e-9
+        assert abs(low[2]) < 1e-9  # bottom unchanged
 
 
 class TestNeedsRotation:

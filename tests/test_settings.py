@@ -585,3 +585,28 @@ class TestStarredKeysPersistence:
         save_starred_keys(path, {"z_key", "a_key", "m_key"})
         data = json.loads(path.read_text())
         assert data == ["a_key", "m_key", "z_key"]
+
+
+class TestScaleBounds:
+    """Negative scale values (mirroring) pass validation on the custom scale settings."""
+
+    def _scale_defn(self, key="scale"):
+        from auto_slicer.config import CUSTOM_SETTINGS
+        return next(d for d in CUSTOM_SETTINGS if d.key == key)
+
+    def test_negative_scale_accepted_without_warning(self):
+        result = validate(self._scale_defn(), "-100")
+        assert result.ok
+        assert not result.warning
+
+    def test_all_axes_accept_negative(self):
+        for key in ("scale", "scale_x", "scale_y", "scale_z"):
+            assert validate(self._scale_defn(key), "-100").ok
+
+    def test_large_negative_warns(self):
+        result = validate(self._scale_defn(), "-2000")
+        assert result.ok
+        assert result.warning
+
+    def test_below_hard_minimum_rejected(self):
+        assert not validate(self._scale_defn(), "-20000").ok

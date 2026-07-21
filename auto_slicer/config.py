@@ -14,31 +14,31 @@ RELOAD_CHAT_FILE = Path(os.path.dirname(os.path.dirname(__file__))) / ".reload_c
 
 CUSTOM_SETTINGS = [
     SettingDefinition(
-        key="scale", label="Scale", description="Master scale factor (all axes)",
+        key="scale", label="Scale", description="Master scale factor (all axes); negative mirrors",
         setting_type="float", default_value=100.0, unit="%",
-        minimum_value=0.1, maximum_value=10000.0,
-        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        minimum_value=-10000.0, maximum_value=10000.0,
+        minimum_value_warning=-1000.0, maximum_value_warning=1000.0,
         category="Model",
     ),
     SettingDefinition(
-        key="scale_x", label="Scale X", description="X-axis scale factor",
+        key="scale_x", label="Scale X", description="X-axis scale factor; negative mirrors",
         setting_type="float", default_value=100.0, unit="%",
-        minimum_value=0.1, maximum_value=10000.0,
-        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        minimum_value=-10000.0, maximum_value=10000.0,
+        minimum_value_warning=-1000.0, maximum_value_warning=1000.0,
         category="Model", value_expression="scale",
     ),
     SettingDefinition(
-        key="scale_y", label="Scale Y", description="Y-axis scale factor",
+        key="scale_y", label="Scale Y", description="Y-axis scale factor; negative mirrors",
         setting_type="float", default_value=100.0, unit="%",
-        minimum_value=0.1, maximum_value=10000.0,
-        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        minimum_value=-10000.0, maximum_value=10000.0,
+        minimum_value_warning=-1000.0, maximum_value_warning=1000.0,
         category="Model", value_expression="scale",
     ),
     SettingDefinition(
-        key="scale_z", label="Scale Z", description="Z-axis scale factor",
+        key="scale_z", label="Scale Z", description="Z-axis scale factor; negative mirrors",
         setting_type="float", default_value=100.0, unit="%",
-        minimum_value=0.1, maximum_value=10000.0,
-        minimum_value_warning=1.0, maximum_value_warning=1000.0,
+        minimum_value=-10000.0, maximum_value=10000.0,
+        minimum_value_warning=-1000.0, maximum_value_warning=1000.0,
         category="Model", value_expression="scale",
     ),
     SettingDefinition(
