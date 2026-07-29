@@ -467,6 +467,16 @@ class TestFindModelsInZip:
             names = {p.name for p in result}
             assert names == {"a.stl", "b.STL"}
 
+    def test_finds_step(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.step").touch()
+            (root / "b.STP").touch()
+            (root / "c.stl").touch()
+            result = _find_models_in_zip(root)
+            names = {p.name for p in result}
+            assert names == {"a.step", "b.STP", "c.stl"}
+
     def test_finds_3mf(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1026,7 +1036,7 @@ class TestSliceFile3MF:
 
     @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
     @patch("auto_slicer.slicer.subprocess.run")
-    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    @patch("auto_slicer.slicer.convert_model_to_stl")
     def test_3mf_converts_before_slicing(self, mock_convert, mock_run, mock_thumbs):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1047,7 +1057,7 @@ class TestSliceFile3MF:
 
     @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
     @patch("auto_slicer.slicer.subprocess.run")
-    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    @patch("auto_slicer.slicer.convert_model_to_stl")
     def test_3mf_with_scaling_applies_to_converted_stl(self, mock_convert, mock_run, mock_thumbs):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1066,7 +1076,7 @@ class TestSliceFile3MF:
             # scale_stl should be called on the converted .stl, not the .3mf
             assert mock_scale.call_args[0][0] == tmpdir / "model.stl"
 
-    @patch("auto_slicer.slicer.convert_3mf_to_stl", side_effect=ValueError("bad mesh"))
+    @patch("auto_slicer.slicer.convert_model_to_stl", side_effect=ValueError("bad mesh"))
     def test_3mf_conversion_failure(self, mock_convert):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1081,7 +1091,7 @@ class TestSliceFile3MF:
 
     @patch("auto_slicer.slicer.generate_thumbnails", return_value=None)
     @patch("auto_slicer.slicer.subprocess.run")
-    @patch("auto_slicer.slicer.convert_3mf_to_stl")
+    @patch("auto_slicer.slicer.convert_model_to_stl")
     def test_3mf_archives_original_file(self, mock_convert, mock_run, mock_thumbs):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as tmpdir:

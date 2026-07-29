@@ -9,8 +9,8 @@ from .config import Config
 from .presets import load_presets
 from .settings_eval import _SAFE_BUILTINS, evaluate_expressions
 from .settings_registry import SettingsRegistry
+from .file_utils import CONVERTIBLE_EXTENSIONS, convert_model_to_stl
 from .stl_transform import euler_to_rotation_matrix, needs_rotation, needs_scaling, scale_stl
-from .threemf import convert_3mf_to_stl
 from .thumbnails import find_header_end, generate_batch_thumbnails, generate_thumbnails, inject_thumbnails
 
 GCODE_SETTINGS = ("machine_start_gcode", "machine_end_gcode")
@@ -385,14 +385,16 @@ def slice_file(config: Config, stl_path: Path, overrides: dict, archive_folder: 
     stats is a dict with time_seconds and filament_meters, or empty on failure.
     """
     original_path = stl_path
-    if stl_path.suffix.lower() == ".3mf":
+    suffix = stl_path.suffix.lower()
+    if suffix in CONVERTIBLE_EXTENSIONS:
+        format_name = suffix.lstrip(".").upper()
         stl_path = stl_path.with_suffix(".stl")
         try:
-            convert_3mf_to_stl(original_path, stl_path)
+            convert_model_to_stl(original_path, stl_path)
             print(f"[Convert] {original_path.name} → {stl_path.name}")
         except Exception as e:
-            print(f"[Error] 3MF conversion failed: {e}")
-            return False, f"3MF conversion failed: {e}", None, {}
+            print(f"[Error] {format_name} conversion failed: {e}")
+            return False, f"{format_name} conversion failed: {e}", None, {}
 
     sx, sy, sz = _resolve_scale(config.defaults, overrides)
     if needs_scaling(sx, sy, sz):

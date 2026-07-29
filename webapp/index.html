@@ -515,7 +515,7 @@
 <div id="upload-container" style="display:none">
   <div class="upload-zone" id="upload-zone">
     <input type="file" id="upload-input">
-    <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / ZIP</div>
+    <div id="upload-zone-text">Drag &amp; drop or tap to select<br>STL / 3MF / STEP / ZIP</div>
   </div>
   <div class="upload-viewport" id="upload-viewport" style="display:none"></div>
   <div class="upload-bed-nav" id="upload-bed-nav" style="display:none">
@@ -1796,8 +1796,8 @@ let activeModelIndex = 0;
 
 async function handleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  if (!['stl', '3mf', 'zip'].includes(ext)) {
-    setStatus('Unsupported file type. Send STL, 3MF, or ZIP.', true);
+  if (!['stl', '3mf', 'step', 'stp', 'zip'].includes(ext)) {
+    setStatus('Unsupported file type. Send STL, 3MF, STEP, or ZIP.', true);
     return;
   }
 

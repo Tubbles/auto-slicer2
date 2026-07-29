@@ -30,7 +30,7 @@ from .slicer import (
     archive_folder_name, dedupe_counted, resolve_settings, slice_batch, slice_file,
 )
 from .stl_transform import needs_rotation, needs_scaling, scale_stl
-from .threemf import convert_3mf_to_stl
+from .file_utils import CONVERTIBLE_EXTENSIONS, convert_model_to_stl
 
 TOKEN_TTL = 1800  # 30-minute sliding window
 TOKEN_MAX_TTL = 86400  # 24-hour absolute maximum
@@ -276,7 +276,7 @@ async def handle_evaluate(request: web.Request) -> web.Response:
 
 
 UPLOAD_TTL = 1800  # 30 minutes
-ALLOWED_EXTENSIONS = {".stl", ".3mf", ".zip"}
+ALLOWED_EXTENSIONS = {".stl", ".zip"} | CONVERTIBLE_EXTENSIONS
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
 
 
@@ -291,11 +291,11 @@ def _cleanup_uploads(uploads: dict) -> None:
 
 
 def _prepare_stl(original: Path, tmpdir: Path, out_name: str | None = None) -> Path:
-    """Convert 3MF to STL if needed, or return the original STL path."""
-    if original.suffix.lower() == ".3mf":
+    """Convert 3MF/STEP to STL if needed, or return the original STL path."""
+    if original.suffix.lower() in CONVERTIBLE_EXTENSIONS:
         stem = Path(out_name).stem if out_name else original.stem
         stl_path = tmpdir / f"{stem}.stl"
-        convert_3mf_to_stl(original, stl_path)
+        convert_model_to_stl(original, stl_path)
         return stl_path
     return original
 
@@ -315,7 +315,7 @@ async def handle_upload(request: web.Request) -> web.Response:
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         return web.json_response(
-            {"error": f"unsupported file type ({ext}). Send STL, 3MF, or ZIP."},
+            {"error": f"unsupported file type ({ext}). Send STL, 3MF, STEP, or ZIP."},
             status=400,
         )
 

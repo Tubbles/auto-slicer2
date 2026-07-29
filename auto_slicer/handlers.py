@@ -10,7 +10,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from .config import Config, RELOAD_CHAT_FILE, is_allowed
-from .file_utils import find_models_in_zip
+from .file_utils import CONVERTIBLE_EXTENSIONS, convert_model_to_stl, find_models_in_zip
 from .packing import pack_groups, repeat_groups
 from .presets import load_presets
 from .slicer import _resolve_batch, _resolve_repeat, archive_folder_name, format_duration, slice_batch, slice_file
@@ -69,7 +69,7 @@ starred_keys: set[str] = load_starred_keys(STARRED_FILE, STARRED_DEFAULT_FILE)
 
 HELP_TEXT = """Auto-Slicer Bot
 
-Send me an STL file and I'll slice it with CuraEngine.
+Send me a model file (STL, 3MF, STEP, or a ZIP of them) and I'll slice it with CuraEngine.
 
 Commands:
 /webapp - Open settings Mini App
@@ -211,16 +211,15 @@ def _is_batch_mode(config: Config, overrides: dict) -> bool:
 
 
 def _prepare_models_for_batch(models: list[Path], config: Config, overrides: dict) -> list[Path]:
-    """Convert 3MF→STL and apply scaling/rotation to models in place."""
+    """Convert 3MF/STEP→STL and apply scaling/rotation to models in place."""
     from .slicer import _resolve_rotation, _resolve_scale
     from .stl_transform import euler_to_rotation_matrix, needs_rotation
-    from .threemf import convert_3mf_to_stl
 
     prepared = []
     for m in models:
-        if m.suffix.lower() == ".3mf":
+        if m.suffix.lower() in CONVERTIBLE_EXTENSIONS:
             stl = m.with_suffix(".stl")
-            convert_3mf_to_stl(m, stl)
+            convert_model_to_stl(m, stl)
             m = stl
 
         sx, sy, sz = _resolve_scale(config.defaults, overrides)
@@ -386,10 +385,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not is_allowed(config, user_id):
         return
 
-    if not name_lower.endswith((".stl", ".3mf", ".zip")):
+    if not name_lower.endswith((".stl", ".3mf", ".step", ".stp", ".zip")):
         ext = Path(name_lower).suffix or "no extension"
         await update.message.reply_text(
-            f"Unsupported file type ({ext}). Send an STL, 3MF, or ZIP file."
+            f"Unsupported file type ({ext}). Send an STL, 3MF, STEP, or ZIP file."
         )
         return
     overrides = user_settings.get(user_id, {})

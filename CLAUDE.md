@@ -26,6 +26,7 @@ python auto-slicer2.py -c /path/to/config.ini
 - `aiohttp` library (HTTP API for Mini App)
 - `numpy-stl` library (STL scaling + writing converted meshes)
 - `lib3mf` library (3MF→STL conversion)
+- `gmsh` library (system package `python3-gmsh` — STEP→STL tessellation via its OpenCASCADE kernel)
 - `pynest2d` library (system package — NFP-based 2D nesting for batch model layout)
 - CuraEngine binary (path configured in config.ini)
 - Cura printer definitions directory
@@ -55,7 +56,7 @@ auto_slicer/
   config.py                # Config class, permission checks
   slicer.py                # slice_file()
   handlers.py              # Telegram command handlers (start, help, webapp, reload, document)
-  file_utils.py            # Shared helpers (find_models_in_zip)
+  file_utils.py            # Shared helpers (find_models_in_zip, model→STL conversion dispatch)
   settings_registry.py     # SettingDefinition dataclass + SettingsRegistry
   settings_match.py        # resolve_setting() fuzzy/natural language resolution
   settings_validate.py     # validate() type + bounds checking
@@ -64,6 +65,7 @@ auto_slicer/
   packing.py               # Bin-pack models onto print beds via pynest2d
   stl_transform.py         # STL scaling + rotation matrix via numpy-stl
   threemf.py               # 3MF→STL conversion via lib3mf
+  stepfile.py              # STEP→STL tessellation via gmsh (OpenCASCADE)
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
   web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth, model upload + slicing)
@@ -76,6 +78,7 @@ tests/
   test_slicer.py           # tests for slicer command building, settings merge, and scaling
   test_stl_transform.py    # tests for STL scaling and rotation matrix
   test_threemf.py          # tests for 3MF→STL conversion
+  test_stepfile.py         # tests for STEP→STL conversion
   test_packing.py          # tests for model bed packing
   test_eval.py             # tests for expression evaluator
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
@@ -116,9 +119,9 @@ tests/
 ### Workflow
 
 1. User configures settings via the Mini App (webapp)
-2. User sends STL or 3MF file as document (ZIPs also accepted), OR uploads via the webapp Upload tab
+2. User sends STL, 3MF, or STEP file as document (ZIPs also accepted), OR uploads via the webapp Upload tab
 3. Bot downloads to temp directory (or webapp stores upload in temp dir)
-4. If the file is 3MF, `convert_3mf_to_stl()` converts it to STL (CuraEngine only accepts STL)
+4. If the file is 3MF or STEP/STP, `convert_model_to_stl()` converts it to STL (CuraEngine only accepts STL; STEP is BREP geometry tessellated by gmsh with curvature-based mesh sizing)
 5. If scale settings differ from 100%, `scale_stl()` modifies the STL in place before slicing
 6. If rotation settings are nonzero, `euler_to_rotation_matrix()` computes the matrix and injects `mesh_rotation_matrix`
 7. If `repeat` > 1, or `batch_models` is enabled and multiple models are present, `repeat_groups()` + `pack_groups()` nest the model copies' convex hulls onto beds using `pynest2d`, then `slice_batch()` invokes CuraEngine once per bed with multiple `-l` flags and per-mesh `mesh_position_x/y` offsets (rotation settings are ignored on this path)
