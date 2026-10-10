@@ -71,45 +71,20 @@ SETTINGS: dict[str, dict] = {
     "material_bed_temp_prepend": {
         "default_value": "false",
     },
-    # Start gcode: heat both, home during heat-up, park high to avoid ooze
+    # Start and end gcode: the printer's START_PRINT and END_PRINT macros
+    # (homelab repo, roles/klipper_host/files/printer-config/macros.cfg) heat,
+    # home, mesh the print area, check the bed tilt and draw the purge lines;
+    # at the end retract, present the print and switch off.
     "machine_start_gcode": {
         "forced": True,
         "default_value": (
-            "M140 S{material_bed_temperature} ;Start bed heating\n"
-            "M104 S{material_print_temperature} ;Start nozzle heating\n"
-            "G28 ;Home all axes\n"
-            "G1 X0 Y0 Z100 F3000 ;Park away from bed\n"
-            "M190 S{material_bed_temperature} ;Wait for bed\n"
-            "M109 S{material_print_temperature} ;Wait for nozzle\n"
-            "G92 E0 ;Reset Extruder\n"
-            "G1 Z2.0 F3000 ;Move Z Axis up\n"
-            "G1 X0.1 Y20 Z0.3 F5000.0 ;Move to start position\n"
-            "G1 X0.1 Y200.0 Z0.3 F1500.0 E15 ;Draw the first line\n"
-            "G1 X0.4 Y200.0 Z0.3 F5000.0 ;Move to side a little\n"
-            "G1 X0.4 Y20 Z0.3 F1500.0 E30 ;Draw the second line\n"
-            "G92 E0 ;Reset Extruder\n"
-            "G1 Z2.0 F3000 ;Move Z Axis up\n"
-            "G1 X5 Y20 Z0.3 F5000.0 ;Move over to prevent blob squish"
+            "START_PRINT SLICER=cura BED_TEMP={material_bed_temperature} "
+            "EXTRUDER_TEMP={material_print_temperature}"
         ),
     },
-    # End gcode: retract, wipe, present print, cool down
     "machine_end_gcode": {
         "forced": True,
-        "default_value": (
-            "G91 ;Relative positioning\n"
-            "G1 E-2 F2700 ;Retract a bit\n"
-            "G1 E-2 Z0.2 F2400 ;Retract and raise Z\n"
-            "G1 X5 Y5 F3000 ;Wipe out\n"
-            "G1 Z10 ;Raise Z more\n"
-            "G90 ;Absolute positioning\n"
-            "\n"
-            "G1 X20 Y{machine_depth - 20} ;Present print\n"
-            "M106 S0 ;Turn-off fan\n"
-            "M104 S0 ;Turn-off hotend\n"
-            "M140 S0 ;Turn-off bed\n"
-            "\n"
-            "M84 X Y E ;Disable all steppers but Z"
-        ),
+        "default_value": "END_PRINT",
     },
     # All-metal heat break: keep retraction short to avoid jams
     "retraction_amount": {
