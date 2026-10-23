@@ -236,4 +236,10 @@ PRESETS: dict[str, dict] = {
             "retraction_speed": "20",
         },
     },
+    "Vase": {
+        "description": "Single walled spiral print with a solid bottom",
+        "settings": {
+            "magic_spiralize": "true",
+        },
+    },
 }
