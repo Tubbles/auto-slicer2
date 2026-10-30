@@ -90,11 +90,42 @@ class Config:
     api_port: int = 0
     webapp_url: str = ""
     api_base_url: str = ""
+    github_token: str = ""
+    github_repos: list[str] = field(default_factory=list)
+    github_cache_dir: Path = Path("cache/github")
+    github_archive_dir: Path | None = None
+    moonraker_url: str = ""
+    moonraker_api_key: str = ""
+    moonraker_gcodes_prefix: str = ""
 
 
 def _parse_allowed_users(raw: str) -> set[int]:
     """Parse comma-separated user IDs into a set."""
     return set(int(x) for x in raw.split(",") if x.strip())
+
+
+def _parse_repos(raw: str) -> list[str]:
+    """Parse comma-separated owner/repo names into a list."""
+    return [repo.strip() for repo in raw.split(",") if repo.strip()]
+
+
+def _github_fields(config) -> dict:
+    """Read the optional [GITHUB], [MOONRAKER] and github archive keys as Config fields."""
+    archive = config.get("PATHS", "github_archive_directory", fallback="").strip()
+    return {
+        "github_token": config.get("GITHUB", "token", fallback="").strip(),
+        "github_repos": _parse_repos(config.get("GITHUB", "repos", fallback="")),
+        "github_cache_dir": Path(config.get("GITHUB", "cache_directory", fallback="").strip() or "cache/github"),
+        "github_archive_dir": Path(archive) if archive else None,
+        "moonraker_url": config.get("MOONRAKER", "url", fallback="").strip().rstrip("/"),
+        "moonraker_api_key": config.get("MOONRAKER", "api_key", fallback="").strip(),
+        "moonraker_gcodes_prefix": config.get("MOONRAKER", "gcodes_prefix", fallback="").strip().strip("/"),
+    }
+
+
+def github_enabled(config: Config) -> bool:
+    """GitHub slicing runs only with both a token and an archive directory."""
+    return bool(config.github_token) and config.github_archive_dir is not None
 
 
 BOUNDS_FIELD_NAMES = (
@@ -184,6 +215,7 @@ def load_config(config) -> Config:
         api_port=api_port,
         webapp_url=webapp_url,
         api_base_url=api_base_url,
+        **_github_fields(config),
     )
 
 

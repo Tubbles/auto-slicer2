@@ -1,0 +1,145 @@
+{
+  "total_count": 7,
+  "artifacts": [
+    {
+      "id": 12959690102,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1OTY5MDEwMg==",
+      "name": "kbdkid4-test-7300786",
+      "size_in_bytes": 964375,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959690102",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959690102/zip",
+      "expired": false,
+      "digest": "sha256:01593fd83f7bca3de671b2a7d77210a77a664e612d39699e0cc288160e707be5",
+      "created_at": "2026-10-30T06:36:07Z",
+      "updated_at": "2026-10-30T06:36:07Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12959650786,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1OTY1MDc4Ng==",
+      "name": "solder-spool-axle-7300786",
+      "size_in_bytes": 85208,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959650786",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959650786/zip",
+      "expired": false,
+      "digest": "sha256:36dd449dfe11e4fb1d1ca179b01336f98345ec9f52ba924af336d1fd3bda595a",
+      "created_at": "2026-10-30T06:35:59Z",
+      "updated_at": "2026-10-30T06:35:59Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12959640229,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1OTY0MDIyOQ==",
+      "name": "coffee-block-7300786",
+      "size_in_bytes": 264,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959640229",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959640229/zip",
+      "expired": false,
+      "digest": "sha256:b77ac3099c8cd78aeda1136c756a39483210da16da1be21cb1ac5952b0b855b7",
+      "created_at": "2026-10-30T06:35:45Z",
+      "updated_at": "2026-10-30T06:35:45Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12959357632,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1OTM1NzYzMg==",
+      "name": "kbdkid5-7300786",
+      "size_in_bytes": 1617991,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959357632",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959357632/zip",
+      "expired": false,
+      "digest": "sha256:767a4af58f13898e490982eaee6333d60597b32bc5a906e4d2c50ad5b21ada97",
+      "created_at": "2026-10-30T06:40:13Z",
+      "updated_at": "2026-10-30T06:40:13Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12959057849,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1OTA1Nzg0OQ==",
+      "name": "kbdkid5-test-7300786",
+      "size_in_bytes": 1734141,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959057849",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12959057849/zip",
+      "expired": false,
+      "digest": "sha256:5ff8b0a9edfe6a304c8ed51a200153dbd53d75b6e28efb5564e4b5f1a6e757af",
+      "created_at": "2026-10-30T06:36:40Z",
+      "updated_at": "2026-10-30T06:36:40Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12958942088,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1ODk0MjA4OA==",
+      "name": "kbdkid4-7300786",
+      "size_in_bytes": 836195,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12958942088",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12958942088/zip",
+      "expired": false,
+      "digest": "sha256:f4a5ab3cb4c1bd5f72bbf7d36f485025bf5652de5b8a5f0daad0c51384571706",
+      "created_at": "2026-10-30T06:37:22Z",
+      "updated_at": "2026-10-30T06:37:22Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    },
+    {
+      "id": 12958753687,
+      "node_id": "MDg6QXJ0aWZhY3QxMjk1ODc1MzY4Nw==",
+      "name": "camera-arm-7300786",
+      "size_in_bytes": 68271,
+      "url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12958753687",
+      "archive_download_url": "https://api.github.com/repos/Tubbles/model-workshop/actions/artifacts/12958753687/zip",
+      "expired": false,
+      "digest": "sha256:14abce8086118abb05a1c3d852a173ef3b77cda922a62b3423f3f9a3c8f9287e",
+      "created_at": "2026-10-30T06:36:05Z",
+      "updated_at": "2026-10-30T06:36:05Z",
+      "expires_at": "2027-01-28T06:35:14Z",
+      "workflow_run": {
+        "id": 41014945273,
+        "repository_id": 1427973838,
+        "head_repository_id": 1427973838,
+        "head_branch": "main",
+        "head_sha": "73007863a31e574b7f75858374a742f2307c5b34"
+      }
+    }
+  ]
+}

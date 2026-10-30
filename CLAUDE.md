@@ -68,7 +68,12 @@ auto_slicer/
   stepfile.py              # STEP→STL tessellation via gmsh (OpenCASCADE)
   thumbnails.py            # OpenSCAD STL→PNG rendering + Klipper gcode thumbnail injection
   web_auth.py              # Telegram initData HMAC-SHA256 validation (legacy, not used for API auth)
-  web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth, model upload + slicing)
+  web_api.py               # aiohttp HTTP API for Mini App (ephemeral Bearer token auth, model upload + slicing, /api/github)
+  github_catalog.py        # GitHub Actions artifact catalog, artifact cache, thumbnails, .autoslice.json rules
+  matrix.py                # GitHub slicing matrix (material/support/adhesion/quality → overrides, folder names)
+  github_jobs.py           # GitHub slicing job queue (one CuraEngine run at a time), sliced results
+  github_service.py        # GitHub slicing methods shared by the HTTP API and the Moonraker agent
+  moonraker_agent.py       # Moonraker agent "autoslice" serving those methods to KlipperScreen
 auto-slicer2.py            # thin entry point (argparse, app wiring)
 starred_keys.default.json  # default starred settings template (checked in)
 webapp/
@@ -84,6 +89,13 @@ tests/
   test_thumbnails.py       # tests for OpenSCAD thumbnail rendering and gcode injection
   test_web_api.py          # tests for web API helpers and endpoints
   test_web_auth.py         # tests for Telegram initData validation
+  test_github_catalog.py   # tests for artifact catalog parsing, rules, cache, thumbnails
+  test_matrix.py           # tests for matrix composition, options and folder names
+  test_github_jobs.py      # tests for slice requests, job states, sliced results
+  test_github_web_api.py   # tests for the /api/github endpoints
+  test_moonraker_agent.py  # tests for the agent's JSON-RPC framing (fake websocket, fake Moonraker), startup
+  github_helpers.py        # shared GitHub test setup (context without network, fake slice_file)
+  fixtures/github/         # GitHub API responses (repo, runs, artifacts) from Tubbles/model-workshop
 ```
 
 ### Key Components
@@ -114,6 +126,8 @@ tests/
 
 **Upload & Slice via webapp** (`web_api.py`): The "Upload" tab in the Mini App allows uploading STL/3MF/ZIP files via `POST /api/upload`, previewing the model with three.js (bounding box + bed outline), and triggering slicing via `POST /api/upload/{file_id}/slice`. Uploads are stored in temp directories with 30-minute TTL. Slicing runs async via `asyncio.create_task` + `asyncio.to_thread`, with status polling via `GET /api/upload/{file_id}/status`.
 
+**GitHub slicing** (`github_catalog.py`, `matrix.py`, `github_jobs.py`, `github_service.py`, `moonraker_agent.py`): Off unless `[GITHUB] token` and `[PATHS] github_archive_directory` are set. The catalog lists, per repo in `[GITHUB] repos`, the non-expired artifacts of the latest successful Actions run on the default branch (one project per artifact, listing reused for 60 s). An artifact's zip is downloaded once into `<cache_directory>/<artifact id>/` and extracted to `models/`. Thumbnails render once with OpenSCAD into `thumbnails/`, one render at a time. Repo rules come from `.autoslice.json` at the run's commit, `{"matrix": bool, "rules": {name: {"description", "settings"}}}` (preset shape, string values). An invalid file is logged and ignored. A slice uses either a matrix selection (material PLA/PETG/TPU, support No support/Support/Vase, adhesion Skirt/Brim, quality Draft/Standard/Fine/Strong, merged in the order quality, material, support, adhesion, later wins, so a material's speed beats the quality's) or a rule, refused when the rules file sets `matrix: false`. Jobs (`queued`, `slicing`, `done`, `error`) run one at a time and stay listed an hour after finishing. Each copies the cached model to a temp dir and calls `slice_file()` with `archive_folder=<github archive>/<artifact name>/<model stem>/<prefix>_<timestamp>`, the prefix being `PLA_No-support_Skirt_Standard` style for a cell or the sanitized rule name. `sliced` reads those folders back, newest per prefix. Paths in results are relative to the github archive and `printer_path` prefixes `[MOONRAKER] gcodes_prefix`. `github_service.METHODS` (projects, models, thumbnail, options, sliced, slice, jobs) is the one implementation behind both `/api/github/*` and the agent. Errors are `GithubError(status)`. With `[MOONRAKER] url` set, the agent connects to `<url>/websocket`, identifies as agent `autoslice`, answers `autoslice.<method>` requests that Moonraker relays from `server.extensions.request`, and sends every job change as agent event `autoslice.job`. It reconnects forever (5 s doubling to 60 s). It registers no remote methods: `connection.register_remote_method` only exposes a method to Klipper's gcode macros. Moonraker treats a null agent result as an error, so methods never return None.
+
 **Preview vs applied settings**: the upload preview reads applied (saved) settings only — `isBatchMode()`, `repeatCount()`, and `getTransformVal()` ignore pending changes, and the bed-layout endpoint (`POST /api/upload/{file_id}/pack`) computes from the user's saved overrides. Editing a setting does not touch the preview; after a successful Apply, `refreshUploadPreview()` re-renders once if any applied key is in `UPLOAD_TRANSFORM_KEYS` (scale, rotation, batch_models, repeat). Slicing also uses saved overrides exclusively, so the preview always matches what Slice produces and pending changes must be applied before Slice.
 
 ### Workflow
@@ -133,8 +147,12 @@ KlipperScreen is configured to show `.txt` files alongside `.gcode`, so `setting
 
 ## Configuration (config.ini)
 
-- `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition
+- `[PATHS]`: archive_directory, cura_engine_path, definition_dir, printer_definition, github_archive_directory (empty = GitHub slicing off)
 - `[TELEGRAM]`: bot_token, allowed_users (comma-separated user IDs, empty = nobody), notify_chat_id, api_port, webapp_url, api_base_url
+- `[GITHUB]`: token (fine-grained, Actions read-only, empty = GitHub slicing off), repos (comma-separated owner/repo), cache_directory (default `cache/github`, gitignored)
+- `[MOONRAKER]`: url (empty = no agent), api_key (optional), gcodes_prefix (github_archive_directory as Moonraker's gcodes root sees it)
+
+config.ini values take no inline comments: configparser would read them as part of the value.
 
 Slicer defaults and bounds overrides live in `auto_slicer/defaults.py` (version-controlled).
 Optional `[DEFAULT_SETTINGS]` and `[BOUNDS_OVERRIDES]` sections in config.ini merge on top of the checked-in values.
