@@ -1,5 +1,6 @@
 /allowed_users.txt
 /archive
+/cache
 /config.ini
 /.claude/settings.local.json
 /.reload_chat_id

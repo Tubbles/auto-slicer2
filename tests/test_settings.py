@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from auto_slicer.config import load_config, _parse_allowed_users, is_allowed, Config
+from auto_slicer.config import load_config, _github_fields, _parse_allowed_users, github_enabled, is_allowed, Config
 from auto_slicer.handlers import load_user_settings, save_user_settings, load_starred_keys, save_starred_keys
 from auto_slicer.settings_registry import (
     SettingsRegistry, SettingDefinition,
@@ -514,6 +514,47 @@ class TestConfigFunctions:
         )
         assert is_allowed(cfg, 42) is True
         assert is_allowed(cfg, 99) is False
+
+
+class TestGithubConfig:
+    def _fields(self, text: str) -> dict:
+        parser = configparser.ConfigParser()
+        parser.read_string(text)
+        return _github_fields(parser)
+
+    def test_absent_sections(self):
+        fields = self._fields("[PATHS]\narchive_directory = archive\n")
+        assert fields["github_token"] == ""
+        assert fields["github_repos"] == []
+        assert fields["github_cache_dir"] == Path("cache/github")
+        assert fields["github_archive_dir"] is None
+        assert fields["moonraker_url"] == ""
+
+    def test_all_keys(self):
+        fields = self._fields(
+            "[PATHS]\ngithub_archive_directory = /models/gh\n"
+            "[GITHUB]\ntoken = t\nrepos = a/b, c/d ,\ncache_directory = /var/cache/gh\n"
+            "[MOONRAKER]\nurl = http://fluiddpi:7125/\napi_key = k\ngcodes_prefix = /Sync/Autoslice Github/\n"
+        )
+        assert fields["github_token"] == "t"
+        assert fields["github_repos"] == ["a/b", "c/d"]
+        assert fields["github_cache_dir"] == Path("/var/cache/gh")
+        assert fields["github_archive_dir"] == Path("/models/gh")
+        assert fields["moonraker_url"] == "http://fluiddpi:7125"
+        assert fields["moonraker_api_key"] == "k"
+        assert fields["moonraker_gcodes_prefix"] == "Sync/Autoslice Github"
+
+    def _config(self, **github) -> Config:
+        return Config(
+            archive_dir=Path("."), cura_bin=Path("."), def_dir=Path("."),
+            printer_def="", defaults={}, telegram_token="",
+            allowed_users=set(), notify_chat_id=None, registry=None, **github,
+        )
+
+    def test_enabled_needs_token_and_archive(self):
+        assert github_enabled(self._config(github_token="t", github_archive_dir=Path("/a")))
+        assert not github_enabled(self._config(github_token="", github_archive_dir=Path("/a")))
+        assert not github_enabled(self._config(github_token="t"))
 
 
 # --- Persistence tests ---
