@@ -20,6 +20,8 @@ from aiohttp import web
 
 from .config import Config
 from .file_utils import find_models_in_zip
+from .github_catalog import GithubError
+from .github_service import call as github_call
 from .presets import load_presets
 from .settings_eval import build_dep_graph, build_reverse_deps, evaluate_expressions
 from .settings_registry import SettingDefinition
@@ -669,6 +671,61 @@ async def handle_upload_delete(request: web.Request) -> web.Response:
     return web.json_response({"status": "deleted"})
 
 
+async def _github_response(request: web.Request, method: str, params: dict) -> web.Response:
+    """Answer with a GitHub slicing method's result (github_service), 404 when the feature is off."""
+    context = request.app.get("github")
+    if context is None:
+        return web.json_response({"error": "GitHub slicing is not configured"}, status=404)
+    try:
+        return web.json_response(await github_call(context, method, params))
+    except GithubError as error:
+        return web.json_response({"error": str(error)}, status=error.status)
+    except Exception as error:
+        print(f"[API] GitHub {method} failed: {error}", flush=True)
+        return web.json_response({"error": f"{type(error).__name__}: {error}"}, status=500)
+
+
+async def handle_github_projects(request: web.Request) -> web.Response:
+    """GET /api/github/projects: artifacts of each repo's latest successful run."""
+    return await _github_response(request, "projects", {})
+
+
+async def handle_github_models(request: web.Request) -> web.Response:
+    """GET /api/github/projects/{artifact_id}/models: model files in an artifact."""
+    return await _github_response(request, "models", dict(request.match_info))
+
+
+async def handle_github_thumbnail(request: web.Request) -> web.Response:
+    """GET /api/github/projects/{artifact_id}/models/{model}/thumbnail: {"png": base64}."""
+    return await _github_response(request, "thumbnail", dict(request.match_info))
+
+
+async def handle_github_options(request: web.Request) -> web.Response:
+    """GET /api/github/projects/{artifact_id}/options: matrix dimensions and repo rules."""
+    return await _github_response(request, "options", dict(request.match_info))
+
+
+async def handle_github_sliced(request: web.Request) -> web.Response:
+    """GET /api/github/projects/{artifact_id}/models/{model}/sliced: results already archived."""
+    return await _github_response(request, "sliced", dict(request.match_info))
+
+
+async def handle_github_slice(request: web.Request) -> web.Response:
+    """POST /api/github/slice: queue a slice. Body: artifact_id, model, and selection or rule."""
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    if not isinstance(body, dict):
+        return web.json_response({"error": "body must be an object"}, status=400)
+    return await _github_response(request, "slice", body)
+
+
+async def handle_github_job(request: web.Request) -> web.Response:
+    """GET /api/github/jobs/{id}: one slicing job."""
+    return await _github_response(request, "jobs", dict(request.match_info))
+
+
 async def handle_health(request: web.Request) -> web.Response:
     """GET /api/health — simple health check, no auth required."""
     return web.json_response({"status": "ok", "time": int(time.time())})
@@ -742,8 +799,12 @@ def create_web_app(
     cors_origin: str = "*", save_fn=None,
     starred_keys: set[str] | None = None, save_starred_fn=None,
     tokens: dict | None = None,
+    github=None,
 ) -> web.Application:
-    """Create and configure the aiohttp web application."""
+    """Create and configure the aiohttp web application.
+
+    github is the GithubContext when GitHub slicing is on, else None.
+    """
     app = web.Application(
         middlewares=[logging_middleware, cors_middleware, auth_middleware],
         client_max_size=MAX_UPLOAD_SIZE,
@@ -759,6 +820,7 @@ def create_web_app(
         app["starred_keys"] = starred_keys
     if save_starred_fn:
         app["save_starred_fn"] = save_starred_fn
+    app["github"] = github
 
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/registry", handle_registry)
@@ -775,5 +837,12 @@ def create_web_app(
     app.router.add_get("/api/upload/{file_id}/status", handle_upload_status)
     app.router.add_delete("/api/upload/{file_id}", handle_upload_delete)
     app.router.add_post("/api/log", handle_log)
+    app.router.add_get("/api/github/projects", handle_github_projects)
+    app.router.add_get("/api/github/projects/{artifact_id}/models", handle_github_models)
+    app.router.add_get("/api/github/projects/{artifact_id}/models/{model}/thumbnail", handle_github_thumbnail)
+    app.router.add_get("/api/github/projects/{artifact_id}/options", handle_github_options)
+    app.router.add_get("/api/github/projects/{artifact_id}/models/{model}/sliced", handle_github_sliced)
+    app.router.add_post("/api/github/slice", handle_github_slice)
+    app.router.add_get("/api/github/jobs/{id}", handle_github_job)
 
     return app
