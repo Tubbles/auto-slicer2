@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonDefau
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from .config import Config, RELOAD_CHAT_FILE, is_allowed
+from .config import Config, RELOAD_CHAT_FILE, github_enabled, is_allowed
 from .file_utils import CONVERTIBLE_EXTENSIONS, convert_model_to_stl, find_models_in_zip
 from .packing import pack_groups, repeat_groups
 from .presets import load_presets
@@ -166,6 +167,8 @@ async def post_init(app) -> None:
         except Exception:
             pass
 
+    github = _start_github(app, config)
+
     # Start HTTP API server if configured
     if config.api_port > 0:
         from aiohttp import web as aio_web
@@ -177,7 +180,7 @@ async def post_init(app) -> None:
         web_app = create_web_app(
             config, user_settings, save_fn=save_fn,
             starred_keys=starred_keys, save_starred_fn=save_starred_fn,
-            tokens=tokens,
+            tokens=tokens, github=github,
         )
         runner = aio_web.AppRunner(web_app)
         await runner.setup()
@@ -187,11 +190,34 @@ async def post_init(app) -> None:
         print(f"HTTP API started on port {config.api_port}")
 
 
+def _start_github(app, config: Config):
+    """Create the GitHub slicing context and start the Moonraker agent. None when the feature is off."""
+    if not github_enabled(config):
+        return None
+    from .github_service import create_context
+    from .moonraker_agent import run_agent
+
+    github = create_context(config)
+    app.bot_data["_github"] = github
+    print(f"[GitHub] Slicing enabled for {', '.join(config.github_repos) or 'no repos'}")
+    if config.moonraker_url:
+        app.bot_data["_agent_task"] = asyncio.create_task(run_agent(github))
+    return github
+
+
 async def post_shutdown(app) -> None:
-    """Clean up the HTTP API server."""
+    """Clean up the HTTP API server, the Moonraker agent and the GitHub session."""
     runner = app.bot_data.get("_api_runner")
     if runner:
         await runner.cleanup()
+    agent_task = app.bot_data.get("_agent_task")
+    if agent_task:
+        agent_task.cancel()
+        await asyncio.gather(agent_task, return_exceptions=True)
+    github = app.bot_data.get("_github")
+    if github:
+        from .github_service import close_context
+        await close_context(github)
 
 
 _find_models_in_zip = find_models_in_zip
