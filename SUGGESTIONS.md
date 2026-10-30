@@ -14,3 +14,9 @@ Undecided ideas, one per line. From the GitHub slicing review of 2026-10-30 unle
 - Check rule setting keys against the settings registry. `auto_slicer/github_catalog.py`.
 - Add slice stats (time, filament) to finished jobs, and an HTTP endpoint listing all jobs. `auto_slicer/github_jobs.py`, `auto_slicer/web_api.py`.
 - Unused imports from before: `web_api.py` (`_resolve_rotation`, `needs_rotation`) and `handlers.py` (`_resolve_rotation`, `euler_to_rotation_matrix`, `needs_rotation`).
+- Two rule names that sanitise to the same prefix ("Thin lid", "Thin-lid") share one archive prefix, so `sliced` marks only one. `auto_slicer/github_jobs.py`.
+- GitHub tab: only the selected matrix cell gets the sliced mark; a dot on each option whose cell (other choices kept) is sliced would show the others. `webapp/index.html`.
+- GitHub tab: one failed job status request ends polling with "Failed" while the job runs on, as the Upload tab's `pollStatus` does. `webapp/index.html`.
+- GitHub tab: options stay tappable while the Slice POST is in flight, so a quick second tap can queue a job that is never shown. `webapp/index.html`.
+- GitHub tab: `matrix: false` with no rules shows only a disabled Slice button and no hint. `webapp/index.html`.
+- GitHub tab: a 200 with a non-JSON body (a proxy page) leaves "Loading projects..." forever. `webapp/index.html`.
