@@ -50,7 +50,7 @@
   .search-bar input:focus { border-color: var(--link); }
 
   .tabs {
-    display: flex; gap: 8px;
+    display: flex; flex-wrap: wrap; gap: 8px;
     padding: 8px 0;
   }
   .tab {
@@ -493,6 +493,105 @@
     background: color-mix(in srgb, #e53935 12%, var(--secondary-bg));
     color: var(--text);
   }
+
+  /* GitHub tab */
+  .github-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--secondary-bg);
+  }
+  .github-header button {
+    background: none;
+    border: none;
+    color: var(--link);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .github-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .github-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--secondary-bg);
+    cursor: pointer;
+  }
+  .github-row:active { opacity: 0.7; }
+  .github-row.active {
+    background: color-mix(in srgb, var(--link) 10%, transparent);
+    margin: 0 -12px;
+    padding: 10px 12px;
+  }
+  .github-detail {
+    font-size: 12px;
+    color: var(--hint);
+    margin-top: 2px;
+  }
+  .github-thumb {
+    width: 56px; height: 56px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    background: var(--secondary-bg);
+    color: var(--hint);
+    font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  .github-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .github-section {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--hint);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 0 4px;
+    border-bottom: 1px solid var(--secondary-bg);
+  }
+  .github-sliced-mark {
+    font-size: 11px;
+    font-weight: 500;
+    color: #4caf50;
+    border: 1px solid #4caf50;
+    border-radius: 8px;
+    padding: 1px 6px;
+    margin-left: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+    flex-shrink: 0;
+  }
+  .github-dimension { padding: 8px 0 0; }
+  .github-dimension-label {
+    font-size: 12px;
+    color: var(--hint);
+    margin-bottom: 4px;
+  }
+  .github-options { display: flex; flex-wrap: wrap; gap: 6px; }
+  .github-option {
+    padding: 4px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--hint);
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .github-option.active {
+    background: var(--btn);
+    color: var(--btn-text);
+    border-color: var(--btn);
+  }
 </style>
 </head>
 <body>
@@ -507,6 +606,7 @@
   <button class="tab" data-filter="presets">Presets</button>
   <button class="tab" data-filter="all">All</button>
   <button class="tab" data-filter="upload">Upload</button>
+  <button class="tab" data-filter="github">GitHub</button>
   <span id="clear-all-container"></span>
 </div>
 
@@ -530,6 +630,11 @@
     <button class="upload-slice-btn" id="upload-slice-btn" disabled>Slice</button>
   </div>
   <div class="upload-model-list" id="upload-model-list" style="display:none"></div>
+</div>
+
+<div id="github-container" style="display:none">
+  <div class="github-header" id="github-header"></div>
+  <div id="github-body"></div>
 </div>
 
 <div id="settings-container">
@@ -645,6 +750,56 @@ async function postStarred(add, remove) {
   if (handleAuthError(r)) throw new Error('session expired');
   const data = await r.json();
   return new Set(data.keys || []);
+}
+
+// GitHub endpoints answer {error} on failure; the thrown error carries the
+// HTTP status (404 from projects means GitHub slicing is off on the bot)
+async function githubRequest(path, options = {}) {
+  const r = await fetch(API_BASE + '/api/github' + path, {
+    ...options,
+    headers: { ...authHeaders(), ...options.headers },
+  });
+  if (handleAuthError(r)) throw new Error('session expired');
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(data.error || `HTTP ${r.status}`), { status: r.status });
+  return data;
+}
+
+// Model names may contain '/', so each travels as one percent-encoded path segment
+function githubModelPath(artifactId, model) {
+  return `/projects/${artifactId}/models/${encodeURIComponent(model)}`;
+}
+
+function fetchGithubProjects() {
+  return githubRequest('/projects');
+}
+
+function fetchGithubModels(artifactId) {
+  return githubRequest(`/projects/${artifactId}/models`);
+}
+
+function fetchGithubThumbnail(artifactId, model) {
+  return githubRequest(githubModelPath(artifactId, model) + '/thumbnail');
+}
+
+function fetchGithubOptions(artifactId) {
+  return githubRequest(`/projects/${artifactId}/options`);
+}
+
+function fetchGithubSliced(artifactId, model) {
+  return githubRequest(githubModelPath(artifactId, model) + '/sliced');
+}
+
+function postGithubSlice(body) {
+  return githubRequest('/slice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function fetchGithubJob(jobId) {
+  return githubRequest(`/jobs/${jobId}`);
 }
 
 // --- Recompute ---
@@ -1022,13 +1177,17 @@ document.querySelectorAll('.tab').forEach(tab => {
 
     const isPresets = currentFilter === 'presets';
     const isUpload = currentFilter === 'upload';
-    document.getElementById('settings-container').style.display = (isPresets || isUpload) ? 'none' : '';
+    const isGithub = currentFilter === 'github';
+    document.getElementById('settings-container').style.display = (isPresets || isUpload || isGithub) ? 'none' : '';
     document.getElementById('presets-container').style.display = isPresets ? '' : 'none';
     document.getElementById('upload-container').style.display = isUpload ? '' : 'none';
-    document.querySelector('.search-bar').style.display = (isPresets || isUpload) ? 'none' : '';
+    document.getElementById('github-container').style.display = isGithub ? '' : 'none';
+    document.querySelector('.search-bar').style.display = (isPresets || isUpload || isGithub) ? 'none' : '';
 
     if (isPresets) {
       renderPresetsTab();
+    } else if (isGithub) {
+      openGithubTab();
     } else if (!isUpload) {
       applyFilter();
     }
@@ -1172,6 +1331,323 @@ function renderClearAllBtn() {
     }
   });
   container.appendChild(btn);
+}
+
+// --- GitHub ---
+
+// The tab drills down projects > models > options > job. Every view bumps
+// githubView, so a late response, the thumbnail loop or the job polling of
+// a view the user has left never draws over the current one.
+let githubView = 0;
+let githubOpened = false;
+let githubOptions = null;
+let githubSliced = [];
+let githubSelection = null;  // the matrix cell, {dimension: option}
+let githubRule = null;  // the chosen rule, null while the matrix is chosen
+let githubThumbnails = {};  // "<artifact id>/<model>" -> base64 PNG, null when it failed
+
+function openGithubTab() {
+  if (githubOpened) return;
+  githubOpened = true;
+  showGithubProjects();
+}
+
+function githubElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text != null) element.textContent = text;
+  return element;
+}
+
+function githubButton(text, onClick) {
+  const button = githubElement('button', null, text);
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function githubTitle(text) {
+  return githubElement('div', 'github-title', text);
+}
+
+function setGithubBody(...elements) {
+  document.getElementById('github-body').replaceChildren(...elements);
+}
+
+// Show a new view's header and loading line, and return the view's token
+function startGithubView(headerElements, loadingText) {
+  document.getElementById('github-header').replaceChildren(...headerElements);
+  setGithubBody(githubElement('div', 'loading', loadingText));
+  return ++githubView;
+}
+
+// A tappable list row: a label over a hint line
+function buildGithubRow(label, detail, onClick) {
+  const info = githubElement('div', 'setting-info');
+  info.append(githubElement('div', 'setting-label', label), githubElement('div', 'github-detail', detail));
+  const row = githubElement('div', 'github-row');
+  row.appendChild(info);
+  row.addEventListener('click', onClick);
+  return row;
+}
+
+function formatAge(isoTime) {
+  const seconds = Math.max(0, (Date.now() - Date.parse(isoTime)) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return `${Math.floor(seconds / 86400)} d ago`;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Step 1: the artifacts of each repo's latest green run
+
+async function showGithubProjects() {
+  const header = [githubTitle('Projects'), githubButton('Refresh', showGithubProjects)];
+  const view = startGithubView(header, 'Loading projects...');
+  let projects;
+  try {
+    projects = await fetchGithubProjects();
+  } catch (e) {
+    if (view !== githubView) return;
+    if (e.status === 404) showGithubOff();
+    else setGithubBody(githubElement('div', 'loading', 'Failed to load projects: ' + e.message));
+    return;
+  }
+  if (view !== githubView) return;
+  if (projects.length === 0) setGithubBody(githubElement('div', 'loading', 'No artifacts in the latest successful runs'));
+  else setGithubBody(...projects.map(buildGithubProjectRow));
+}
+
+function showGithubOff() {
+  document.getElementById('github-header').style.display = 'none';
+  setGithubBody(githubElement('div', 'loading', 'GitHub slicing is off on this bot'));
+}
+
+function buildGithubProjectRow(project) {
+  const detail = `${project.commit} · ${formatAge(project.created_at)} · ${formatSize(project.size)}`;
+  return buildGithubRow(project.name, detail, () => showGithubModels(project));
+}
+
+// Step 2: the models of one artifact (the first call downloads it)
+
+async function showGithubModels(project) {
+  const header = [githubButton('‹ Projects', showGithubProjects), githubTitle(project.name)];
+  const view = startGithubView(header, 'Loading models...');
+  let models;
+  try {
+    models = await fetchGithubModels(project.artifact_id);
+  } catch (e) {
+    if (view === githubView) setGithubBody(githubElement('div', 'loading', 'Failed to load models: ' + e.message));
+    return;
+  }
+  if (view !== githubView) return;
+  if (models.length === 0) return setGithubBody(githubElement('div', 'loading', 'No models in this artifact'));
+  const thumbs = models.map(() => githubElement('div', 'github-thumb', '…'));
+  setGithubBody(...models.map((model, index) => buildGithubModelRow(project, model, thumbs[index])));
+  loadGithubThumbnails(project.artifact_id, models, thumbs, view);
+}
+
+function buildGithubModelRow(project, model, thumb) {
+  const row = buildGithubRow(model.name, formatSize(model.size), () => {
+    githubSelection = null;
+    githubRule = null;
+    showGithubOptions(project, model.name);
+  });
+  row.prepend(thumb);
+  return row;
+}
+
+// The bot renders a thumbnail on its first request, which takes seconds, so
+// they load one at a time after the list shows, each into its placeholder
+async function loadGithubThumbnails(artifactId, models, thumbs, view) {
+  for (let index = 0; index < models.length && view === githubView; index++) {
+    showGithubThumbnail(thumbs[index], await fetchGithubThumbnailOnce(artifactId, models[index].name));
+  }
+}
+
+// Failures are kept too: a model whose render fails would fail again, slowly
+async function fetchGithubThumbnailOnce(artifactId, model) {
+  const key = `${artifactId}/${model}`;
+  if (!(key in githubThumbnails)) {
+    try {
+      githubThumbnails[key] = (await fetchGithubThumbnail(artifactId, model)).png;
+    } catch (e) {
+      githubThumbnails[key] = null;
+    }
+  }
+  return githubThumbnails[key];
+}
+
+function showGithubThumbnail(thumb, png) {
+  if (!png) {
+    thumb.textContent = 'No preview';
+    return;
+  }
+  const image = githubElement('img');
+  image.src = 'data:image/png;base64,' + png;
+  thumb.replaceChildren(image);
+}
+
+// Step 3: pick a rule or a matrix cell. Coming back from a job keeps the choice.
+
+async function showGithubOptions(project, model) {
+  const header = [githubButton('‹ Models', () => showGithubModels(project)), githubTitle(model)];
+  const view = startGithubView(header, 'Loading options...');
+  let options, sliced;
+  try {
+    [options, sliced] = await Promise.all([
+      fetchGithubOptions(project.artifact_id),
+      fetchGithubSliced(project.artifact_id, model),
+    ]);
+  } catch (e) {
+    if (view === githubView) setGithubBody(githubElement('div', 'loading', 'Failed to load options: ' + e.message));
+    return;
+  }
+  if (view !== githubView) return;
+  githubOptions = options;
+  githubSliced = sliced;
+  if (githubSelection === null) {
+    githubSelection = Object.fromEntries(options.dimensions.map(dimension => [dimension.name, dimension.default]));
+  }
+  renderGithubOptions(project, model);
+}
+
+function renderGithubOptions(project, model) {
+  const rerender = () => {
+    haptic();
+    renderGithubOptions(project, model);
+  };
+  const result = currentGithubResult();
+  const rules = Object.entries(githubOptions.rules);
+  const parts = [];
+  if (rules.length > 0) parts.push(githubElement('div', 'github-section', 'Rules'));
+  for (const [name, rule] of rules) parts.push(buildGithubRuleRow(name, rule, rerender));
+  if (githubOptions.matrix) {
+    parts.push(buildGithubMatrixHeader(githubRule === null && result));
+    for (const dimension of githubOptions.dimensions) parts.push(buildGithubDimension(dimension, rerender));
+  }
+  if (result) parts.push(githubElement('div', 'upload-result success', 'Sliced: ' + result.printer_path));
+  parts.push(buildGithubSliceActions(project, model, result));
+  setGithubBody(...parts);
+}
+
+// The archived result of the chosen rule or matrix cell, if it was sliced before
+function currentGithubResult() {
+  if (githubRule !== null) return githubSliced.find(entry => entry.rule === githubRule);
+  if (!githubOptions.matrix) return undefined;
+  return githubSliced.find(entry => entry.selection
+    && githubOptions.dimensions.every(dimension => entry.selection[dimension.name] === githubSelection[dimension.name]));
+}
+
+function buildGithubRuleRow(name, rule, rerender) {
+  const row = buildGithubRow(name, rule.description, () => {
+    githubRule = name;
+    rerender();
+  });
+  if (githubRule === name) row.classList.add('active');
+  if (githubSliced.some(entry => entry.rule === name)) row.appendChild(githubElement('span', 'github-sliced-mark', 'sliced'));
+  return row;
+}
+
+function buildGithubMatrixHeader(isSliced) {
+  const header = githubElement('div', 'github-section', 'Matrix');
+  if (isSliced) header.appendChild(githubElement('span', 'github-sliced-mark', 'sliced'));
+  return header;
+}
+
+// One row of toggle buttons; no option is active while a rule is chosen
+function buildGithubDimension(dimension, rerender) {
+  const options = githubElement('div', 'github-options');
+  for (const option of dimension.options) {
+    const button = githubButton(option, () => {
+      githubSelection[dimension.name] = option;
+      githubRule = null;
+      rerender();
+    });
+    const active = githubRule === null && githubSelection[dimension.name] === option;
+    button.className = 'github-option' + (active ? ' active' : '');
+    options.appendChild(button);
+  }
+  const label = dimension.name.charAt(0).toUpperCase() + dimension.name.slice(1);
+  const wrap = githubElement('div', 'github-dimension');
+  wrap.append(githubElement('div', 'github-dimension-label', label), options);
+  return wrap;
+}
+
+function buildGithubSliceActions(project, model, result) {
+  const button = githubButton(result ? 'Slice again' : 'Slice', () => startGithubSlice(project, model, button));
+  button.className = 'upload-slice-btn';
+  button.disabled = githubRule === null && !githubOptions.matrix;
+  const actions = githubElement('div', 'upload-actions');
+  actions.appendChild(button);
+  return actions;
+}
+
+async function startGithubSlice(project, model, button) {
+  const view = githubView;
+  const choice = githubRule !== null ? { rule: githubRule } : { selection: { ...githubSelection } };
+  button.disabled = true;
+  button.textContent = 'Slicing...';
+  let job;
+  try {
+    job = await postGithubSlice({ artifact_id: project.artifact_id, model, ...choice });
+  } catch (e) {
+    setStatus('Slice failed: ' + e.message, true);
+    if (view === githubView) renderGithubOptions(project, model);
+    return;
+  }
+  if (view === githubView) showGithubJob(project, model, job);
+}
+
+// Step 4: follow the job until it is done or failed
+
+function showGithubJob(project, model, job) {
+  const header = [githubButton('‹ Options', () => showGithubOptions(project, model)), githubTitle(model)];
+  followGithubJob(project, model, job, startGithubView(header, ''));
+}
+
+function followGithubJob(project, model, job, view) {
+  renderGithubJob(project, model, job);
+  if (job.state === 'done' || job.state === 'error') {
+    setStatus(job.state === 'done' ? 'Done!' : 'Failed', job.state === 'error');
+    return;
+  }
+  setTimeout(async () => {
+    if (view !== githubView) return;
+    let next;
+    try {
+      next = await fetchGithubJob(job.id);
+    } catch (e) {
+      next = { ...job, state: 'error', message: 'Status check failed: ' + e.message };
+    }
+    if (view === githubView) followGithubJob(project, model, next, view);
+  }, 2000);
+}
+
+function renderGithubJob(project, model, job) {
+  const choice = job.rule ?? Object.values(job.selection).join(', ');
+  const parts = [githubElement('div', 'github-section', choice)];
+  if (job.state === 'done') {
+    const text = `${job.message}\nPath: ${job.path}\nOn the printer: ${job.printer_path}`;
+    parts.push(githubElement('div', 'upload-result success', text));
+  } else if (job.state === 'error') {
+    parts.push(githubElement('div', 'upload-result failure', job.message));
+  } else {
+    parts.push(githubElement('div', 'loading', job.state === 'queued' ? 'Queued' : 'Slicing...'));
+  }
+  if (job.state === 'done' || job.state === 'error') {
+    const again = githubButton('Slice another', () => showGithubOptions(project, model));
+    again.className = 'upload-slice-btn';
+    const actions = githubElement('div', 'upload-actions');
+    actions.appendChild(again);
+    parts.push(actions);
+  }
+  setGithubBody(...parts);
 }
 
 // --- Apply ---
